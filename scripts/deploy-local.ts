@@ -46,7 +46,7 @@ async function main() {
   //    aud and then turn the aud check OFF so the mock issuer can use any
   //    client_id without coordination.
   const Verifier = await ethers.getContractFactory("TwitchJWTVerifier");
-  const verifier = await Verifier.deploy([KID], [modulusHex], ["local-dev"], deployer.address);
+  const verifier = await Verifier.deploy([KID], [modulusHex], ["local-dev"], deployer.address, deployer.address, deployer.address);
   await verifier.waitForDeployment();
   await (await verifier.setAudCheckEnabled(false)).wait();
   const verifierAddr = await verifier.getAddress();

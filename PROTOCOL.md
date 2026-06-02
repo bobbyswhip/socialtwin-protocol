@@ -93,6 +93,16 @@ Any failure reverts; the verifier returns `true` only when all hold.
 
 `initiateRescue()` (rescuer-only, never-activated twin) starts a `RESCUE_DELAY` (90-day) countdown from that call. `completeRescue(designatedEOA)` then delegates control after the delay if the twin is still never-activated. Any JWT action / `setOwnerEOA` sets `activated` and blocks rescue. `completeRescue` does **not** set `selfCustody`, so the real streamer can still reclaim via JWT.
 
+## 8. Signing-key rotation (timelocked, in place)
+
+A contract can't fetch Twitch's JWKS, so the modulus per `kid` is stored onchain and can be rotated without redeploying:
+
+- `queueKey(string kid, bytes modulus)` (`keyAdmin`, modulus must be 256 bytes) → sets a pending key with `eta = now + KEY_TIMELOCK`; emits `KeyQueued(kid, keccak256(modulus), eta)`.
+- During the window: `pendingKeyFor(kid) → (modulus, eta)` is public so anyone can compare the pending modulus to `id.twitch.tv/oauth2/keys`. `cancelKey(kid)` (callable by `keyAdmin` **or** `guardian`) vetoes it.
+- `commitKey(string kid)` (`keyAdmin`, after `eta`) → sets `modulusOf[keccak256(kid)] = modulus` **in place** (adds the kid if new). The verifier address is unchanged, so every existing twin keeps the same address and resumes verifying against the new key — no migration, no permanent lock.
+
+`keyAdmin` is transferable; `guardian` is transferable **only by the guardian** (so `keyAdmin` can't neutralize the veto). Self-custodied twins use no JWT and are unaffected by any key change. See [`SECURITY.md`](./SECURITY.md) for the trust analysis.
+
 ## Constants
 
-`MAX_PROOF_AGE = 5 minutes` · `MAX_CLOCK_SKEW = 60 seconds` · `RESCUE_DELAY = 90 days` · `AUD_TIMELOCK = 2 days`.
+`MAX_PROOF_AGE = 5 minutes` · `MAX_CLOCK_SKEW = 60 seconds` · `RESCUE_DELAY = 90 days` · `AUD_TIMELOCK = 2 days` · `KEY_TIMELOCK = 7 days`.

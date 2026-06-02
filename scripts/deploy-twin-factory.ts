@@ -2,7 +2,7 @@ import { ethers, network, run } from "hardhat";
 
 // Reuses the existing TwitchJWTVerifier on Base mainnet.
 const VERIFIER_BY_CHAIN: Record<number, string> = {
-  8453: "0xEaD1e986407d899fD00A8733F48Fd87DeeB33A4e", // v1.1 verifier (timelocked aud allowlist)
+  8453: "0xF7E1BFE0a67F484B112D6581dFF7481ad13D76e0", // v1.3 verifier (aud timelock + key rotation)
 };
 
 async function main() {

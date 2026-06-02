@@ -7,8 +7,8 @@ How to build on SocialTwin from a dApp. Uses the [`sdk/`](../sdk/) helpers + vie
 ```ts
 const cfg = {
   chainId: 8453,
-  factoryAddress: "0xe717Dd981Ea9FD5Fe7E61cFA11e07EDc48Ba1088", // v1.2
-  verifierAddress: "0xEaD1e986407d899fD00A8733F48Fd87DeeB33A4e",
+  factoryAddress: "0x51205c4615A45870F8aF13b408CC579b09AC90a6", // v1.3
+  verifierAddress: "0xF7E1BFE0a67F484B112D6581dFF7481ad13D76e0",
   twitchClientId: "<your Twitch app client_id>", // must be an allowlisted `aud`
   redirectUri: "https://yourapp.example/claim",  // EXACT match in the Twitch app (trailing slash matters)
 };

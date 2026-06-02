@@ -4,7 +4,7 @@
 
 SocialTwin gives every Twitch account a deterministic smart-contract wallet (a "twin") whose address is derived purely from the Twitch numeric `user_id`. Anyone can send funds to a streamer by their Twitch identity — community-coin trading fees, tips, rewards — **before that streamer has ever connected a wallet, signed a transaction, or even heard of the protocol**. The streamer later claims and controls the twin by signing in with Twitch, with the login proof **verified entirely onchain**. There is no oracle, no witness network, and no off-chain protocol in the trust path.
 
-> **Status:** Live on Base mainnet (**v1.2**, post-audit — Basescan-verified). Reviewed by Sterling Crispin; all findings addressed — see [`AUDIT_RESPONSE.md`](AUDIT_RESPONSE.md). v1.2 adds **one-way self-custody**: connecting an owner EOA permanently disables the Twitch/JWT path for that twin (no Twitch can drain or re-point it). Passed a live adversarial matrix + 101 tests. **Still recommend a full external audit of the JWT verifier before routing large value.**
+> **Status:** Live on Base mainnet (**v1.3**, post-audit — Basescan-verified). Reviewed by Sterling Crispin; all findings addressed — see [`AUDIT_RESPONSE.md`](AUDIT_RESPONSE.md). v1.2 added **one-way self-custody** (linking a wallet permanently disables the Twitch path for that twin); v1.3 adds **timelocked signing-key rotation** so a Twitch key rotation can never permanently lock funds. 84 tests. **Still recommend a full external audit of the JWT verifier before routing large value.**
 
 ---
 
@@ -21,19 +21,20 @@ The result: fund-by-identity with self-custody guarantees, no trusted relayer in
 
 ---
 
-## Live deployment — v1.2 (Base mainnet · chainId 8453)
+## Live deployment — v1.3 (Base mainnet · chainId 8453)
 
-The post-audit stack: intent-based rescue + timelocked aud allowlist (v1.1) + one-way self-custody (v1.2). Source-verified on Basescan.
+The post-audit stack: intent-based rescue + timelocked aud allowlist (v1.1), one-way self-custody (v1.2), timelocked signing-key rotation (v1.3). Source-verified on Basescan.
 
 | Contract | Address | Role |
 |---|---|---|
-| `TwinFactory` (v1.2) | [`0xe717Dd981Ea9FD5Fe7E61cFA11e07EDc48Ba1088`](https://basescan.org/address/0xe717Dd981Ea9FD5Fe7E61cFA11e07EDc48Ba1088#code) | Derives & deploys twins (`CREATE2`); embeds the v1.2 `TwinAccount` |
-| `TwitchJWTVerifier` | [`0xEaD1e986407d899fD00A8733F48Fd87DeeB33A4e`](https://basescan.org/address/0xEaD1e986407d899fD00A8733F48Fd87DeeB33A4e#code) | Onchain Twitch OIDC JWT verification (2-day `aud` timelock); unchanged since v1.1 |
-| Treasury (multisig role) | [`0xD1EC8245c8850A151843ce8a3AFdca3b19747706`](https://basescan.org/address/0xD1EC8245c8850A151843ce8a3AFdca3b19747706) | `audAdmin` + abandoned-funds `rescuer` |
+| `TwinFactory` (v1.3) | [`0x51205c4615A45870F8aF13b408CC579b09AC90a6`](https://basescan.org/address/0x51205c4615A45870F8aF13b408CC579b09AC90a6#code) | Derives & deploys twins (`CREATE2`) |
+| `TwitchJWTVerifier` (v1.3) | [`0xF7E1BFE0a67F484B112D6581dFF7481ad13D76e0`](https://basescan.org/address/0xF7E1BFE0a67F484B112D6581dFF7481ad13D76e0#code) | Onchain Twitch OIDC JWT verification; 2-day `aud` timelock + 7-day signing-key rotation |
+| Treasury (multisig) | [`0xD1EC8245c8850A151843ce8a3AFdca3b19747706`](https://basescan.org/address/0xD1EC8245c8850A151843ce8a3AFdca3b19747706) | `audAdmin` + `keyAdmin` + abandoned-funds `rescuer` |
+| Guardian (veto key) | `0xa825094B04D5a3710bd41C4fbC902F75cF333333` | can cancel a pending signing-key rotation (distinct from `keyAdmin`) |
 
-Contracts are immutable and source-verified. Salt domain: `"SocialTwin:twitch:v2"`. Twitch issuer `https://id.twitch.tv/oauth2`, signing key `kid="1"`. Sample twin (`yougotcoined`): [`0x4335C9543F72AA0Ff5FA478A40ED4748508ebd4e`](https://basescan.org/address/0x4335C9543F72AA0Ff5FA478A40ED4748508ebd4e).
+Source-verified. Salt domain: `"SocialTwin:twitch:v2"`. Twitch issuer `https://id.twitch.tv/oauth2`, signing key `kid="1"`. Sample twin (`yougotcoined`): [`0xFcaF3AE24db90017ffa70D95aAA5ba69b76DD75C`](https://basescan.org/address/0xFcaF3AE24db90017ffa70D95aAA5ba69b76DD75C).
 
-> **Deprecated factories (do not use):** v1.0 `0x942C079aA7458fDc89cFd1FAc00555fA6Beb77Ff` (pre-audit), v1.1 `0x4318db7BeDF879A43B77fa608248bBF78423bBDa` (no self-custody disable). The v1.1 verifier `0xEaD1…` is reused by v1.2. v1.0 also used verifier `0xF1Ff265EcA9983a21992808B9d764F8c6F2F9d25`. Funds in old twins remain controlled by their respective contracts; new integrations must use the v1.2 factory above.
+> **Deprecated (do not use):** v1.0 factory `0x942C…`/verifier `0xF1Ff…`, v1.1 factory `0x4318…`, v1.2 factory `0xe717…`/verifier `0xEaD1…`. Funds in old twins remain controlled by their respective contracts; new integrations must use the v1.3 addresses above.
 
 ---
 
@@ -101,8 +102,8 @@ npm test            # full suite incl. red-team vectors
 import { predictTwinAddress } from "@socialtwin/sdk";
 
 const twin = predictTwinAddress({
-  factory:  "0xe717Dd981Ea9FD5Fe7E61cFA11e07EDc48Ba1088", // v1.2
-  verifier: "0xEaD1e986407d899fD00A8733F48Fd87DeeB33A4e", // unchanged since v1.1
+  factory:  "0x51205c4615A45870F8aF13b408CC579b09AC90a6", // v1.3
+  verifier: "0xF7E1BFE0a67F484B112D6581dFF7481ad13D76e0", // v1.3
   userId:   1507305235n,            // Twitch numeric user_id
 });
 // → send ETH / ERC-20 to `twin`. Done. No setup on the recipient's side.
@@ -114,7 +115,7 @@ import { buildSpendFlow, parseReturnFragment, buildExecuteCall } from "@socialtw
 
 const cfg = {
   chainId: 8453,
-  factoryAddress: "0xe717Dd981Ea9FD5Fe7E61cFA11e07EDc48Ba1088", // v1.2
+  factoryAddress: "0x51205c4615A45870F8aF13b408CC579b09AC90a6", // v1.3
   twitchClientId: "<your Twitch app client_id>", // must be allowlisted as an `aud`
   redirectUri: "https://yourapp.example/claim",  // must match the Twitch app exactly
 };
@@ -151,7 +152,7 @@ See [`docs/INTEGRATION.md`](docs/INTEGRATION.md) and [`docs/FRONTEND_SDK.md`](do
 **Honest residual risks:**
 - The onchain JWT verifier (RSA + base64url + JSON parsing in Solidity) is intricate and **not yet externally audited**. Internally red-teamed with 22+ adversarial vectors (forged signatures, `alg=none`/confusion, JSON injection, cross-user, replay, audience phishing) plus a fuzz suite; findings and fixes in [`RED_TEAM_FINDINGS.md`](RED_TEAM_FINDINGS.md) and [`AUDIT_RESPONSE.md`](AUDIT_RESPONSE.md).
 - OAuth phishing narrows to "the user authorizes a malicious *allowlisted* app." Same ceiling as any "Sign in with X"; **once a user self-custodies (links a wallet), the JWT path is permanently disabled** so this risk disappears for that twin. `force_verify=true` forces the consent screen each time.
-- If Twitch rotates its signing key, JWT-path access pauses until a new verifier/factory is deployed and users migrate. A key-rotation watchdog provides advance warning; wallets linked via `setOwnerEOA` are unaffected (they don't use JWTs).
+- If Twitch rotates its signing key, `keyAdmin` rotates the modulus **in place** behind a **7-day timelock** the `guardian` can veto and anyone can verify against Twitch's live JWKS — so the JWT path resumes on the same twins (a legit rotation just pauses claims for the timelock; funds are never permanently locked). Self-custodied twins use no JWT and are unaffected. Residual trust: `keyAdmin`+`guardian` both compromised, unnoticed for 7 days, could install a forged key — see [`SECURITY.md`](SECURITY.md) and [`AUDIT_RESPONSE.md`](AUDIT_RESPONSE.md) Finding 5.
 
 Full write-ups: [`SECURITY.md`](SECURITY.md) · [`PERMANENCE.md`](PERMANENCE.md) · [`AUDIT_RESPONSE.md`](AUDIT_RESPONSE.md).
 

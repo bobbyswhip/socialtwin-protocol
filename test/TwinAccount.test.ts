@@ -50,7 +50,7 @@ describe("TwinFactory + TwinAccount", () => {
     const modulus = rsaModulus(kp.publicKey);
 
     const VerifierFactory = await ethers.getContractFactory("TwitchJWTVerifier");
-    verifier = await VerifierFactory.deploy([KID], ["0x" + modulus.toString("hex")], ["test"], deployer.address);
+    verifier = await VerifierFactory.deploy([KID], ["0x" + modulus.toString("hex")], ["test"], deployer.address, deployer.address, deployer.address);
     await verifier.waitForDeployment();
 
     const TwinFactoryFactory = await ethers.getContractFactory("TwinFactory");

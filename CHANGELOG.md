@@ -2,6 +2,16 @@
 
 All notable changes to the protocol and reference implementation. Format inspired by [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.3.0] — 2026-06-02 — Timelocked signing-key rotation
+
+Guarantees a Twitch signing-key rotation can never permanently lock funds. **Deployed + Basescan-verified:** `TwinFactory` `0x51205c4615A45870F8aF13b408CC579b09AC90a6`, `TwitchJWTVerifier` `0xF7E1BFE0a67F484B112D6581dFF7481ad13D76e0`.
+
+### Added
+- `TwitchJWTVerifier`: `queueKey` → `KEY_TIMELOCK` (7 days) → `commitKey` rotates/adds a Twitch RSA key **in place** (same verifier ⇒ same twin addresses, no migration, no permanent lock). A **distinct `guardian`** role can `cancelKey` to veto a pending key; `keyAdmin` cannot reassign the guardian. Pending modulus is public via `pendingKeyFor` for JWKS comparison. New roles `keyAdmin`/`guardian` (constructor now takes both); errors `NotKeyAdmin`/`NotGuardianNorKeyAdmin`/`KeyNotQueued`/`KeyTimelockNotElapsed`/`BadModulusLength`; `test/KeyRotation.test.ts` (9 tests; 84 total).
+
+### Note
+- `TwinAccount`/`TwinFactory` source is unchanged from v1.2, but a new verifier ⇒ new twin addresses, so v1.2 (`0xe717…`/`0xEaD1…`) is deprecated. Residual trust of the rotation path documented in `SECURITY.md` / `AUDIT_RESPONSE.md` (Finding 5).
+
 ## [1.2.0] — 2026-06-02 — One-way self-custody
 
 Follow-up security hardening (strengthens audit Finding 2). **Deployed + Basescan-verified:** `TwinFactory` `0xe717Dd981Ea9FD5Fe7E61cFA11e07EDc48Ba1088` (verifier `0xEaD1…` reused from v1.1).

@@ -26,11 +26,12 @@ contract TwitchJWTVerifier is IVerifier {
     bytes constant ISSUER = bytes("https://id.twitch.tv/oauth2");
     uint256 constant PUBLIC_EXPONENT = 65537; // Twitch uses e=AQAB
 
-    /// @notice Twitch signs with multiple keys at once (smooth rotation). We
-    ///         accept any of the moduli baked in at construction; new keys
-    ///         require a redeploy.
-    /// @dev Each modulus must be 256 bytes (RSA-2048). We index by `kid`
-    ///      string so the JWT header's kid selects which one to use.
+    /// @notice RSA modulus per Twitch key id (`kid`); each is 256 bytes (RSA-2048).
+    ///         The JWT header's `kid` selects which one to verify against.
+    /// @dev Keys can be added or ROTATED by `keyAdmin` via a timelocked,
+    ///      guardian-cancelable, JWKS-verifiable flow (queueKey → commitKey), so a
+    ///      Twitch signing-key rotation never permanently locks twins. See the
+    ///      "signing-key administration" section below for the trust model.
     mapping(bytes32 => bytes) public modulusOf;
     bytes32[] public registeredKids;
 
@@ -65,6 +66,22 @@ contract TwitchJWTVerifier is IVerifier {
     /// @notice keccak256(aud) => earliest timestamp commitAud() may run. 0 = not queued.
     mapping(bytes32 => uint256) public pendingAudEta;
 
+    /// @notice Roles for ROTATING the Twitch signing key. `keyAdmin` queues and
+    ///         commits a key; `guardian` (a DISTINCT key) can cancel a pending
+    ///         key during the timelock. Two parties ⇒ a single compromised key
+    ///         cannot push a malicious modulus through.
+    address public keyAdmin;
+    address public guardian;
+    /// @notice Delay between queueKey() and commitKey(). The pending modulus is
+    ///         public for this long, so anyone can compare it to Twitch's live
+    ///         JWKS (a real modulus matches; a malicious one provably doesn't) and
+    ///         the guardian can veto. A legit rotation just pauses the JWT path
+    ///         for this long, then resumes IN PLACE — same verifier + twin
+    ///         addresses, no migration, no permanent lock.
+    uint256 public constant KEY_TIMELOCK = 7 days;
+    struct PendingKey { bytes modulus; uint256 eta; } // eta 0 = none queued
+    mapping(bytes32 => PendingKey) internal pendingKeyOf; // keccak256(kid) => pending
+
     event AudAdded(string aud);
     event AudRemoved(string aud);
     event AudQueued(string aud, uint256 eta);
@@ -72,6 +89,11 @@ contract TwitchJWTVerifier is IVerifier {
     event AudAdminTransferred(address indexed from, address indexed to);
     event AudCheckSet(bool enabled);
     event LockedOpenForever();
+    event KeyQueued(string kid, bytes32 modulusHash, uint256 eta);
+    event KeyCommitted(string kid, bytes32 modulusHash);
+    event KeyCancelled(string kid);
+    event KeyAdminTransferred(address indexed from, address indexed to);
+    event GuardianTransferred(address indexed from, address indexed to);
 
     error UnknownKey();
     error BadSignature();
@@ -84,15 +106,29 @@ contract TwitchJWTVerifier is IVerifier {
     error WrongAudience();
     error ParseFailed();
     error NotAudAdmin();
+    error NotKeyAdmin();
+    error NotGuardianNorKeyAdmin();
+    error KeyNotQueued();
+    error KeyTimelockNotElapsed();
+    error BadModulusLength();
 
-    /// @param kids     list of Twitch JWT key ids (e.g., ["1"])
-    /// @param moduli   matching 256-byte RSA moduli for each kid
-    /// @param auds     initial allowlisted OAuth client_ids (the `aud` claim); non-empty
+    /// @param kids      list of Twitch JWT key ids (e.g., ["1"])
+    /// @param moduli    matching 256-byte RSA moduli for each kid
+    /// @param auds      initial allowlisted OAuth client_ids (the `aud` claim); non-empty
     /// @param _audAdmin address allowed to add/remove auds (treasury/multisig); non-zero
-    constructor(string[] memory kids, bytes[] memory moduli, string[] memory auds, address _audAdmin) {
+    /// @param _keyAdmin address allowed to queue/commit signing-key rotations; non-zero
+    /// @param _guardian DISTINCT address that can cancel a pending key (veto); non-zero
+    constructor(
+        string[] memory kids,
+        bytes[] memory moduli,
+        string[] memory auds,
+        address _audAdmin,
+        address _keyAdmin,
+        address _guardian
+    ) {
         require(kids.length == moduli.length && kids.length > 0, "kids/moduli mismatch");
         require(auds.length > 0, "need >=1 aud");
-        require(_audAdmin != address(0), "audAdmin zero");
+        require(_audAdmin != address(0) && _keyAdmin != address(0) && _guardian != address(0), "zero role");
         for (uint256 i = 0; i < kids.length; i++) {
             require(moduli[i].length == 256, "modulus must be 256 bytes (RSA-2048)");
             bytes32 k = keccak256(bytes(kids[i]));
@@ -101,7 +137,11 @@ contract TwitchJWTVerifier is IVerifier {
         }
         for (uint256 i = 0; i < auds.length; i++) _addAud(auds[i]);
         audAdmin = _audAdmin;
+        keyAdmin = _keyAdmin;
+        guardian = _guardian;
         emit AudAdminTransferred(address(0), _audAdmin);
+        emit KeyAdminTransferred(address(0), _keyAdmin);
+        emit GuardianTransferred(address(0), _guardian);
     }
 
     // ─────────── aud allowlist administration ───────────
@@ -193,6 +233,76 @@ contract TwitchJWTVerifier is IVerifier {
 
     function audCount() external view returns (uint256) {
         return registeredAuds.length;
+    }
+
+    // ─────────── signing-key administration (rotation) ───────────
+    //
+    // A smart contract cannot fetch Twitch's JWKS, so the modulus lives onchain.
+    // To survive a Twitch key rotation WITHOUT stranding existing twins, keyAdmin
+    // can add or rotate a key — but only behind KEY_TIMELOCK, which the guardian
+    // can veto, and the pending modulus is public so anyone can verify it against
+    // id.twitch.tv/oauth2/keys (a real modulus matches; a malicious one does not).
+    // A legit rotation resumes the JWT path IN PLACE (same verifier + twin
+    // addresses). Self-custodied twins don't use these keys and are unaffected.
+
+    modifier onlyKeyAdmin() {
+        if (msg.sender != keyAdmin) revert NotKeyAdmin();
+        _;
+    }
+
+    /// @notice Step 1 — queue a key: a new `kid`, or a rotated modulus for an
+    ///         existing `kid`. Committable only after KEY_TIMELOCK; public meanwhile.
+    function queueKey(string calldata kid, bytes calldata modulus) external onlyKeyAdmin {
+        if (modulus.length != 256) revert BadModulusLength();
+        bytes32 k = keccak256(bytes(kid));
+        uint256 eta = block.timestamp + KEY_TIMELOCK;
+        pendingKeyOf[k] = PendingKey(modulus, eta);
+        emit KeyQueued(kid, keccak256(modulus), eta);
+    }
+
+    /// @notice Step 2 — commit a queued key once KEY_TIMELOCK has elapsed. Adds a
+    ///         new kid or replaces an existing kid's modulus, in place.
+    function commitKey(string calldata kid) external onlyKeyAdmin {
+        bytes32 k = keccak256(bytes(kid));
+        PendingKey memory p = pendingKeyOf[k];
+        if (p.eta == 0) revert KeyNotQueued();
+        if (block.timestamp < p.eta) revert KeyTimelockNotElapsed();
+        if (modulusOf[k].length == 0) registeredKids.push(k); // first time we see this kid
+        modulusOf[k] = p.modulus;
+        delete pendingKeyOf[k];
+        emit KeyCommitted(kid, keccak256(p.modulus));
+    }
+
+    /// @notice Cancel a pending key. Either keyAdmin OR the guardian may call —
+    ///         the guardian's veto is the second-party check on a malicious key.
+    function cancelKey(string calldata kid) external {
+        if (msg.sender != keyAdmin && msg.sender != guardian) revert NotGuardianNorKeyAdmin();
+        bytes32 k = keccak256(bytes(kid));
+        if (pendingKeyOf[k].eta == 0) revert KeyNotQueued();
+        delete pendingKeyOf[k];
+        emit KeyCancelled(kid);
+    }
+
+    /// @notice Hand off the keyAdmin role (e.g., to a multisig). Non-zero.
+    function transferKeyAdmin(address newAdmin) external onlyKeyAdmin {
+        require(newAdmin != address(0), "zero");
+        emit KeyAdminTransferred(keyAdmin, newAdmin);
+        keyAdmin = newAdmin;
+    }
+
+    /// @notice Hand off the guardian role. ONLY the guardian can do this, so a
+    ///         compromised keyAdmin can never neutralize its own veto.
+    function transferGuardian(address newGuardian) external {
+        if (msg.sender != guardian) revert NotGuardianNorKeyAdmin();
+        require(newGuardian != address(0), "zero");
+        emit GuardianTransferred(guardian, newGuardian);
+        guardian = newGuardian;
+    }
+
+    /// @notice The pending modulus + eta for a `kid` (for offchain JWKS comparison).
+    function pendingKeyFor(string calldata kid) external view returns (bytes memory modulus, uint256 eta) {
+        PendingKey memory p = pendingKeyOf[keccak256(bytes(kid))];
+        return (p.modulus, p.eta);
     }
 
     // ─────────── IVerifier ───────────

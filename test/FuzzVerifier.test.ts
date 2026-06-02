@@ -45,7 +45,7 @@ describe("TwitchJWTVerifier — fuzz / parser hardening (F6)", () => {
     goodKey = good.privateKey;
     evilKey = evil.privateKey;
     const V = await ethers.getContractFactory("TwitchJWTVerifier");
-    verifier = await V.deploy([KID], ["0x" + rsaModulus(good.publicKey).toString("hex")], [AUD], admin.address);
+    verifier = await V.deploy([KID], ["0x" + rsaModulus(good.publicKey).toString("hex")], [AUD], admin.address, admin.address, admin.address);
     await verifier.waitForDeployment();
     actionHash = ethers.keccak256(ethers.toUtf8Bytes("action")); // any 32-byte value; verifier checks nonce==hex(this)
   });

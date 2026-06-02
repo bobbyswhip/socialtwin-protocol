@@ -43,7 +43,7 @@ describe("RED TEAM", () => {
     attackerKey = generateKeyPairSync("rsa", { modulusLength: 2048, publicExponent: 65537 }).privateKey;
 
     const V = await ethers.getContractFactory("TwitchJWTVerifier");
-    verifier = await V.deploy([KID], [modHex(kpPub)], ["a"], deployer.address);
+    verifier = await V.deploy([KID], [modHex(kpPub)], ["a"], deployer.address, deployer.address, deployer.address);
     const F = await ethers.getContractFactory("TwinFactory");
     factory = await F.deploy(await verifier.getAddress(), rescuer.address);
   });

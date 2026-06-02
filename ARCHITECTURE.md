@@ -43,10 +43,12 @@ Funds sent to a twin whose streamer never shows up aren't lost forever. The fact
 
 Neither role can move an active user's funds.
 
-- **`audAdmin`** (on `TwitchJWTVerifier`) — curates the anti-phishing `aud` allowlist. New `aud`s are **timelocked 2 days** (`queueAud` → `commitAud`); `removeAud`, `setAudCheckEnabled(false)`, and `lockOpenForever()` are immediate. Should be a multisig. `lockOpenForever()` permanently drops the role and accepts any app's JWTs (full decentralization).
+- **`audAdmin`** (on `TwitchJWTVerifier`) — curates the anti-phishing `aud` allowlist. New `aud`s are **timelocked 2 days** (`queueAud` → `commitAud`); `removeAud`, `setAudCheckEnabled(false)`, and `lockOpenForever()` are immediate. `lockOpenForever()` permanently drops the role and accepts any app's JWTs (full decentralization).
+- **`keyAdmin`** (on `TwitchJWTVerifier`) — rotates a Twitch signing key **in place** to survive a Twitch rotation without stranding twins: `queueKey` → **7-day timelock** → `commitKey`. The pending modulus is public (verifiable against Twitch's JWKS).
+- **`guardian`** (on `TwitchJWTVerifier`) — a **distinct** key that can `cancelKey` (veto) a pending rotation. `keyAdmin` cannot reassign the guardian, so a single compromised key can't push a malicious modulus.
 - **`rescuer`** (on `TwinFactory`) — runs the two-phase rescue on never-activated twins only. Non-renounceable but transferable to a DAO/multisig.
 
-Both are held by the treasury (`0xD1EC…`); live addresses are in [`README.md`](./README.md).
+`audAdmin`/`keyAdmin`/`rescuer` are the treasury (`0xD1EC…`); `guardian` is a distinct key (`0xa825…`). Live addresses in [`README.md`](./README.md).
 
 ## Off-chain (convenience only — not in the trust path)
 

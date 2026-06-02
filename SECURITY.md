@@ -32,19 +32,21 @@ Spending a twin trusts exactly:
 | Role | Where | Can | Cannot |
 |---|---|---|---|
 | `audAdmin` | `TwitchJWTVerifier` | `queueAud`→(2-day timelock)→`commitAud`, `removeAud` (immediate), `setAudCheckEnabled`, `lockOpenForever` | move funds; instantly allowlist an app |
+| `keyAdmin` | `TwitchJWTVerifier` | `queueKey`→(7-day timelock)→`commitKey` to add/rotate a Twitch signing key in place | move funds; install a key the guardian vetoes, or without the public delay |
+| `guardian` | `TwitchJWTVerifier` | `cancelKey` — veto a pending signing-key rotation | anything else (cancel-only) |
 | `rescuer` | `TwinFactory` | `initiateRescue` / `completeRescue` on **never-activated** twins after a 90-day window | touch any activated/owned twin; rescue without the public delay |
 
-Both are the treasury multisig. `lockOpenForever()` permanently drops `audAdmin` and accepts any app's JWTs (graduating to full permissionlessness). `rescuer` is non-renounceable but transferable.
+`audAdmin`/`keyAdmin`/`rescuer` are the treasury multisig; **`guardian` is a DISTINCT key** (so a single compromise can't push a malicious signing key — `keyAdmin` queues, `guardian` can veto, and `keyAdmin` cannot reassign the guardian). `lockOpenForever()` permanently drops `audAdmin`. `rescuer` is non-renounceable but transferable.
 
 The off-chain **relayer** key is spend-risk only (it pays gas); it is powerless beyond that — it can only broadcast what a JWT authorized, and must verify `twin == factory.predictAddress(jwt.sub)` before paying.
 
 ## Residual risks (honest)
 
 - **OAuth blind-signing.** The Twitch consent screen can't display tx details, so JWT-path authorization is "blind." The action-hash binding stops tampering/redirection, and the `aud` allowlist stops foreign apps — but a user authorizing a malicious *allowlisted* app (or open mode) is the same ceiling as any "Sign in with X." Mitigations: dApps must show the action pre-redirect; `force_verify=true`; **and self-custody removes the JWT path entirely for that twin.** See [`AUDIT_RESPONSE.md`](./AUDIT_RESPONSE.md) Finding 2.
-- **Twitch key rotation.** Moduli are baked in at deploy; if Twitch rotates `kid="1"`, the JWT path stalls until a new verifier+factory is deployed and users migrate. We deliberately do **not** allow admin key-injection (that would let the admin forge tokens). Self-custodied twins and `executeAsOwner` are unaffected; a JWKS watchdog gives advance warning.
+- **Twitch key rotation.** A contract can't fetch Twitch's JWKS, so the modulus is onchain. If Twitch rotates `kid="1"`, `keyAdmin` rotates it **in place** (`queueKey` → 7-day timelock → `commitKey`) — same verifier + twin addresses, no migration, so funds are **never permanently locked**; a legit rotation just pauses JWT-claims for the timelock. The rotation is **bounded**, not blind: the pending modulus is public (anyone compares it to `id.twitch.tv/oauth2/keys`), the `guardian` can `cancelKey`, and self-custodied twins use no JWT at all. **Residual:** if `keyAdmin` **and** `guardian` are both compromised and a malicious key sits queued for 7 days *without* anyone (watchdog/community) noticing and *without* affected users self-custodying, the attacker could install a forged key and drain JWT-path twins. That's a real but bounded trust assumption — strictly larger than an immutable verifier, deliberately taken to remove the permanent-lock risk. A JWKS watchdog gives advance warning of the rotation itself.
 - **Treasury key.** A compromised treasury could allowlist a phishing app (after the 2-day timelock — publicly visible) or rescue never-activated twins after 90 days. It cannot take active users' funds. Keep it a multisig.
 - **Unaudited verifier.** Hand-rolled onchain base64url/JSON/RSA. Internally red-teamed (22+ vectors) + a fuzz suite (`test/FuzzVerifier.test.ts`), but a specialist audit is still recommended.
 
 ## Verified deployment
 
-The live v1.2 contracts are **source-verified on Basescan**, so the deployed bytecode provably equals the code in this repo and exercised by the test suite. Addresses in [`README.md`](./README.md).
+The live v1.3 contracts are **source-verified on Basescan**, so the deployed bytecode provably equals the code in this repo and exercised by the test suite. Addresses in [`README.md`](./README.md).

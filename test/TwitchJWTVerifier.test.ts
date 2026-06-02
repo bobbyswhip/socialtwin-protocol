@@ -36,7 +36,7 @@ describe("TwitchJWTVerifier", () => {
     expect(modulus.length).to.equal(256);
 
     const Verifier = await ethers.getContractFactory("TwitchJWTVerifier");
-    verifier = await Verifier.deploy([KID], ["0x" + modulus.toString("hex")], ["test-app"], deployer.address);
+    verifier = await Verifier.deploy([KID], ["0x" + modulus.toString("hex")], ["test-app"], deployer.address, deployer.address, deployer.address);
     await verifier.waitForDeployment();
   });
 

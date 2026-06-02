@@ -35,7 +35,7 @@ describe("TwinAccount v2 — escape EOA + rescue", () => {
     const kp = generateKeyPairSync("rsa", { modulusLength: 2048, publicExponent: 65537 });
     pk = kp.privateKey;
     const V = await ethers.getContractFactory("TwitchJWTVerifier");
-    verifier = await V.deploy([KID], ["0x" + rsaModulus(kp.publicKey).toString("hex")], ["t"], deployer.address);
+    verifier = await V.deploy([KID], ["0x" + rsaModulus(kp.publicKey).toString("hex")], ["t"], deployer.address, deployer.address, deployer.address);
     await verifier.waitForDeployment();
     const F = await ethers.getContractFactory("TwinFactory");
     factory = await F.deploy(await verifier.getAddress(), rescuer.address);

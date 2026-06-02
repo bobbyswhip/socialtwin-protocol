@@ -23,7 +23,7 @@ describe("E2E streamer journey (mock Twitch)", () => {
     const priv = kp.privateKey.export({ type: "pkcs1", format: "pem" }) as string;
 
     const V = await ethers.getContractFactory("TwitchJWTVerifier");
-    const verifier = await V.deploy([KID], [modHex(kp.publicKey)], ["e2e"], deployer.address);
+    const verifier = await V.deploy([KID], [modHex(kp.publicKey)], ["e2e"], deployer.address, deployer.address, deployer.address);
     const F = await ethers.getContractFactory("TwinFactory");
     const factory = await F.deploy(await verifier.getAddress(), deployer.address);
 

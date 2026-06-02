@@ -32,7 +32,7 @@ Once a user calls `setOwnerEOA`, the twin flips a one-way `selfCustody` flag: th
 
 ## The one real dependency: Twitch's signing key
 
-The JWT path depends on Twitch maintaining OIDC and not rotating `kid="1"` out from under a deployed verifier. If Twitch rotates keys, the JWT path for *unlinked* twins stalls until a new verifier+factory is deployed and users migrate — a transparent, observable event with weeks of warning (a JWKS watchdog flags it). Self-custodied twins are unaffected (they use no JWT). We deliberately do **not** let an admin inject new RSA moduli, because that would make the admin able to forge tokens — strictly worse than the rotation risk.
+The JWT path depends on Twitch maintaining OIDC. If Twitch rotates `kid="1"`, the JWT path would otherwise break for unlinked twins. v1.3 handles this **in place**: `keyAdmin` rotates the modulus on the existing verifier (`queueKey` → 7-day timelock → `commitKey`), so the **same twins at the same addresses** resume verifying — no migration, **no permanent lock** (a legit rotation just pauses JWT-claims for the timelock). The rotation is bounded, not blind: the pending modulus is public to compare against Twitch's live JWKS, a **distinct `guardian`** can veto it, and self-custodied twins use no JWT at all. The trade-off is a bounded trust assumption (`keyAdmin`+`guardian` collusion, unnoticed for 7 days) — taken deliberately to eliminate the permanent-lock risk. A JWKS watchdog flags the rotation itself in advance.
 
 ## The decentralization dial
 
