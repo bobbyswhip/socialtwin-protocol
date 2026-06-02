@@ -4,9 +4,7 @@
 
 SocialTwin gives every Twitch account a deterministic smart-contract wallet (a "twin") whose address is derived purely from the Twitch numeric `user_id`. Anyone can send funds to a streamer by their Twitch identity — community-coin trading fees, tips, rewards — **before that streamer has ever connected a wallet, signed a transaction, or even heard of the protocol**. The streamer later claims and controls the twin by signing in with Twitch, with the login proof **verified entirely onchain**. There is no oracle, no witness network, and no off-chain protocol in the trust path.
 
-> **Status:** Live on Base mainnet (v1.0). Internally red-teamed + an external review by Sterling Crispin — see [`AUDIT_RESPONSE.md`](AUDIT_RESPONSE.md) for the findings and fixes. **Not yet fully audited — do not route large value until it is.**
->
-> ⚠️ **The live mainnet addresses below are the pre-audit v1.0 contracts.** The audit fixes (intent-based rescue, aud-add timelock) are landed in source and require a fresh deploy (v1.1) to take effect onchain — **not yet deployed**.
+> **Status:** Live on Base mainnet (**v1.1**, post-audit — Basescan-verified). Reviewed by Sterling Crispin; all findings addressed — see [`AUDIT_RESPONSE.md`](AUDIT_RESPONSE.md). v1.1 passed a live adversarial matrix (rescue access-control, owner-path, JWT-path, aud-timelock) plus 99 tests. **Still recommend a full external audit of the JWT verifier before routing large value.**
 
 ---
 
@@ -23,15 +21,19 @@ The result: fund-by-identity with self-custody guarantees, no trusted relayer in
 
 ---
 
-## Live deployment (Base mainnet · chainId 8453)
+## Live deployment — v1.1 (Base mainnet · chainId 8453)
+
+The post-audit v1.1 stack (intent-based rescue + timelocked aud allowlist). Both source-verified on Basescan.
 
 | Contract | Address | Role |
 |---|---|---|
-| `TwinFactory` | [`0x942C079aA7458fDc89cFd1FAc00555fA6Beb77Ff`](https://basescan.org/address/0x942C079aA7458fDc89cFd1FAc00555fA6Beb77Ff) | Derives & deploys twins (`CREATE2`) |
-| `TwitchJWTVerifier` | [`0xF1Ff265EcA9983a21992808B9d764F8c6F2F9d25`](https://basescan.org/address/0xF1Ff265EcA9983a21992808B9d764F8c6F2F9d25) | Onchain Twitch OIDC JWT verification |
+| `TwinFactory` | [`0x4318db7BeDF879A43B77fa608248bBF78423bBDa`](https://basescan.org/address/0x4318db7BeDF879A43B77fa608248bBF78423bBDa#code) | Derives & deploys twins (`CREATE2`) |
+| `TwitchJWTVerifier` | [`0xEaD1e986407d899fD00A8733F48Fd87DeeB33A4e`](https://basescan.org/address/0xEaD1e986407d899fD00A8733F48Fd87DeeB33A4e#code) | Onchain Twitch OIDC JWT verification (2-day `aud` timelock) |
 | Treasury (multisig role) | [`0xD1EC8245c8850A151843ce8a3AFdca3b19747706`](https://basescan.org/address/0xD1EC8245c8850A151843ce8a3AFdca3b19747706) | `audAdmin` + abandoned-funds `rescuer` |
 
-All contracts are immutable and source-verified on Basescan. Salt domain: `"SocialTwin:twitch:v2"`. Twitch issuer `https://id.twitch.tv/oauth2`, signing key `kid="1"`.
+Contracts are immutable and source-verified. Salt domain: `"SocialTwin:twitch:v2"`. Twitch issuer `https://id.twitch.tv/oauth2`, signing key `kid="1"`. Sample twin (`yougotcoined`): [`0xa6743f05Aca670d69DFC04Ab7Ab30678ef2A0Ec9`](https://basescan.org/address/0xa6743f05Aca670d69DFC04Ab7Ab30678ef2A0Ec9).
+
+> **Deprecated v1.0 (pre-audit, do not use):** factory `0x942C079aA7458fDc89cFd1FAc00555fA6Beb77Ff`, verifier `0xF1Ff265EcA9983a21992808B9d764F8c6F2F9d25`. Funds in v1.0 twins remain controlled by the v1.0 contracts; new integrations must use the v1.1 addresses above.
 
 ---
 
@@ -99,8 +101,8 @@ npm test            # full suite incl. red-team vectors
 import { predictTwinAddress } from "@socialtwin/sdk";
 
 const twin = predictTwinAddress({
-  factory:  "0x942C079aA7458fDc89cFd1FAc00555fA6Beb77Ff",
-  verifier: "0xF1Ff265EcA9983a21992808B9d764F8c6F2F9d25",
+  factory:  "0x4318db7BeDF879A43B77fa608248bBF78423bBDa", // v1.1
+  verifier: "0xEaD1e986407d899fD00A8733F48Fd87DeeB33A4e", // v1.1
   userId:   1507305235n,            // Twitch numeric user_id
 });
 // → send ETH / ERC-20 to `twin`. Done. No setup on the recipient's side.
@@ -112,7 +114,7 @@ import { buildSpendFlow, parseReturnFragment, buildExecuteCall } from "@socialtw
 
 const cfg = {
   chainId: 8453,
-  factoryAddress: "0x942C079aA7458fDc89cFd1FAc00555fA6Beb77Ff",
+  factoryAddress: "0x4318db7BeDF879A43B77fa608248bBF78423bBDa", // v1.1
   twitchClientId: "<your Twitch app client_id>", // must be allowlisted as an `aud`
   redirectUri: "https://yourapp.example/claim",  // must match the Twitch app exactly
 };

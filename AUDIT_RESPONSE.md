@@ -5,7 +5,9 @@ External review by **Sterling Crispin** (commit `1aeed2e`, branch `main`) — or
 
 The review found **no "anyone can forge and drain" vulnerability** and confirmed all 103 tests passed and the SDK initcode matched the compiled artifact. It raised seven design/implementation issues. This document records each one and exactly what changed in response.
 
-> **Deployment note:** the contract-level fixes (Findings 1 & 2) change `TwinAccount`/`TwitchJWTVerifier` bytecode, so they require a **fresh deploy (v1.1)** to take effect onchain. The live v1.0 addresses in the README are the pre-audit contracts. SDK/docs/test fixes are effective immediately in-repo.
+> **Deployment status:** the v1.1 stack is **deployed and Basescan-verified** on Base mainnet:
+> `TwinFactory` [`0x4318db7BeDF879A43B77fa608248bBF78423bBDa`](https://basescan.org/address/0x4318db7BeDF879A43B77fa608248bBF78423bBDa#code) · `TwitchJWTVerifier` [`0xEaD1e986407d899fD00A8733F48Fd87DeeB33A4e`](https://basescan.org/address/0xEaD1e986407d899fD00A8733F48Fd87DeeB33A4e#code).
+> Verified source ⇒ the deployed bytecode equals the code reviewed here and exercised by the test suite. The pre-audit v1.0 stack is deprecated (see README). A live adversarial matrix was run post-deploy (see "Post-deploy red-team" below).
 
 | # | Finding | Severity | Status |
 |---|---------|----------|--------|
@@ -72,6 +74,26 @@ Because the clock runs from the rescuer's public signal — not from deploy — 
 - v1→v2 / attestor→JWT references across docs updated; attestor-era docs banner-marked.
 
 ---
+
+## Post-deploy red-team (v1.1, live on Base mainnet)
+
+After deploying + verifying, an adversarial `eth_call` matrix was run against the live contracts and a real twin (`0xa6743f05Aca670d69DFC04Ab7Ab30678ef2A0Ec9`). All checks passed — every malicious call reverts and every honest invariant holds:
+
+**Rescue (the focus):**
+- `completeRescue()` with no prior `initiateRescue()` → reverts `RescueNotInitiated` ✓
+- `initiateRescue()` / `completeRescue()` from a non-rescuer → reverts `NotRescuer` ✓
+- `completeRescue(address(0))` → reverts `ZeroAddress` ✓
+- `initiateRescue()` from the treasury rescuer → permitted (intended) ✓
+- fresh twin: `rescueAllowedAt() == 0`, `isRescuable() == false`, `ownerEOA == 0`, `activated == false` ✓
+- The 90-day timelock (clock from intent, not deploy), activation-cancels-rescue, and the pre-deploy-attack-neutralized property are proven by the time-traveled hardhat tests against this exact Basescan-verified bytecode.
+
+**Other paths:**
+- `executeAsOwner` by a non-owner → reverts `NotOwner` ✓
+- `execute` with a bogus JWT → reverts (`ProofFromFuture` / verifier rejection) ✓
+- `queueAud` by a non-admin → reverts `NotAudAdmin` ✓
+- `commitAud` of an un-queued aud → reverts `"not queued"` ✓
+
+This is access-control + revert-path coverage on the live deployment; it complements (does not replace) the recommended external audit + fuzzing of the JWT verifier.
 
 ## Not changed (and why)
 

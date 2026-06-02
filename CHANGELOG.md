@@ -4,7 +4,9 @@ All notable changes to the protocol and reference implementation. Format inspire
 
 ## [1.1.0] — 2026-06-02 — Audit response
 
-Addresses the external review by Sterling Crispin. Full mapping in [`AUDIT_RESPONSE.md`](AUDIT_RESPONSE.md). Contract changes require a fresh deploy (v1.1) to take effect onchain.
+Addresses the external review by Sterling Crispin. Full mapping in [`AUDIT_RESPONSE.md`](AUDIT_RESPONSE.md).
+
+**Deployed + Basescan-verified on Base mainnet:** `TwinFactory` `0x4318db7BeDF879A43B77fa608248bBF78423bBDa`, `TwitchJWTVerifier` `0xEaD1e986407d899fD00A8733F48Fd87DeeB33A4e`. Passed a post-deploy live adversarial matrix (rescue access-control, owner-path, JWT-path, aud-timelock) + 99 tests. Pre-audit v1.0 (`0x942C…`, `0xF1Ff…`) deprecated.
 
 ### Security
 - **Rescue redesign (Finding 1, High):** abandoned-funds rescue is now two-phase and intent-based — `initiateRescue()` starts the 90-day clock from the rescuer's public signal (not deploy time), then `completeRescue()`. Neutralizes the pre-deploy timing attack. New error `RescueNotInitiated`; removed `rescueAbandoned`.
