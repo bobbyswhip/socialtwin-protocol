@@ -1,0 +1,244 @@
+import { expect } from "chai";
+import { ethers } from "hardhat";
+import { generateKeyPairSync, KeyObject } from "crypto";
+import jwt from "jsonwebtoken";
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
+import { TwinAccount, TwinFactory, TwitchJWTVerifier } from "../typechain-types";
+
+const ISSUER = "https://id.twitch.tv/oauth2";
+const KID = "1";
+const ALICE = 12345n;
+const BOB = 67890n;
+const RESCUE_DELAY = 90 * 24 * 60 * 60; // 3 months
+
+function rsaModulus(key: KeyObject): Buffer {
+  const jwk = key.export({ format: "jwk" }) as any;
+  const n = jwk.n as string;
+  const padded = n + "=".repeat((4 - (n.length % 4)) % 4);
+  return Buffer.from(padded.replace(/-/g, "+").replace(/_/g, "/"), "base64");
+}
+
+describe("TwinAccount v2 — escape EOA + rescue", () => {
+  let factory: TwinFactory;
+  let verifier: TwitchJWTVerifier;
+  let pk: KeyObject;
+  let deployer: HardhatEthersSigner;
+  let rescuer: HardhatEthersSigner;
+  let aliceEOA: HardhatEthersSigner;
+  let newEOA: HardhatEthersSigner;
+  let mallory: HardhatEthersSigner;
+  let recipient: HardhatEthersSigner;
+  let communityEOA: HardhatEthersSigner;
+
+  beforeEach(async () => {
+    [deployer, rescuer, aliceEOA, newEOA, mallory, recipient, communityEOA] = await ethers.getSigners();
+    const kp = generateKeyPairSync("rsa", { modulusLength: 2048, publicExponent: 65537 });
+    pk = kp.privateKey;
+    const V = await ethers.getContractFactory("TwitchJWTVerifier");
+    verifier = await V.deploy([KID], ["0x" + rsaModulus(kp.publicKey).toString("hex")], ["t"], deployer.address);
+    await verifier.waitForDeployment();
+    const F = await ethers.getContractFactory("TwinFactory");
+    factory = await F.deploy(await verifier.getAddress(), rescuer.address);
+    await factory.waitForDeployment();
+  });
+
+  function mint(sub: bigint, iat: number, nonce: string) {
+    return jwt.sign(
+      { iss: ISSUER, sub: sub.toString(), aud: "t", iat, exp: iat + 3600, nonce },
+      pk.export({ type: "pkcs1", format: "pem" }) as string,
+      { algorithm: "RS256", header: { alg: "RS256", typ: "JWT", kid: KID } }
+    );
+  }
+
+  async function twinFor(userId: bigint): Promise<TwinAccount> {
+    await factory.deployTwin(userId);
+    return ethers.getContractAt("TwinAccount", await factory.predictAddress(userId));
+  }
+
+  async function now(): Promise<number> {
+    const b = await ethers.provider.getBlock("latest");
+    return Number(b!.timestamp);
+  }
+
+  // ─── Escape EOA ───────────────────────────────────────────────
+  describe("setOwnerEOA (escape hatch)", () => {
+    it("Twitch owner connects an EOA via JWT, then that EOA spends with no JWT", async () => {
+      const twin = await twinFor(ALICE);
+      await deployer.sendTransaction({ to: await twin.getAddress(), value: ethers.parseEther("1") });
+
+      const n = await twin.nonce();
+      const t = await now();
+      const deadline = t + 600;
+      const ah = await twin.computeSetOwnerHash(aliceEOA.address, n, deadline);
+      const token = mint(ALICE, t, ah);
+      await twin.setOwnerEOA(aliceEOA.address, n, deadline, t, ethers.toUtf8Bytes(token));
+
+      expect(await twin.ownerEOA()).to.equal(aliceEOA.address);
+      expect(await twin.activated()).to.equal(true);
+
+      // Now Twitch can vanish — EOA spends directly, no JWT.
+      const before = await ethers.provider.getBalance(recipient.address);
+      await twin.connect(aliceEOA).executeAsOwner(recipient.address, ethers.parseEther("0.3"), "0x");
+      expect(await ethers.provider.getBalance(recipient.address) - before).to.equal(ethers.parseEther("0.3"));
+    });
+
+    it("a non-owner EOA cannot spend via the owner path", async () => {
+      const twin = await twinFor(ALICE);
+      await deployer.sendTransaction({ to: await twin.getAddress(), value: ethers.parseEther("1") });
+      const n = await twin.nonce();
+      const t = await now();
+      const deadline = t + 600;
+      const ah = await twin.computeSetOwnerHash(aliceEOA.address, n, deadline);
+      await twin.setOwnerEOA(aliceEOA.address, n, deadline, t, ethers.toUtf8Bytes(mint(ALICE, t, ah)));
+      await expect(
+        twin.connect(mallory).executeAsOwner(mallory.address, ethers.parseEther("0.5"), "0x")
+      ).to.be.revertedWithCustomError(twin, "NotOwner");
+    });
+
+    it("executeAsOwner reverts before any owner is set", async () => {
+      const twin = await twinFor(ALICE);
+      await expect(
+        twin.connect(aliceEOA).executeAsOwner(recipient.address, 0n, "0x")
+      ).to.be.revertedWithCustomError(twin, "NotOwner");
+    });
+
+    it("a JWT for Alice cannot set the owner EOA on Bob's twin", async () => {
+      const bob = await twinFor(BOB);
+      const n = await bob.nonce();
+      const t = await now();
+      const deadline = t + 600;
+      const ah = await bob.computeSetOwnerHash(mallory.address, n, deadline);
+      // sign with ALICE's id against BOB's twin
+      const token = mint(ALICE, t, ah);
+      await expect(
+        bob.setOwnerEOA(mallory.address, n, deadline, t, ethers.toUtf8Bytes(token))
+      ).to.be.reverted; // verifier WrongSub
+    });
+
+    it("owner can rotate to a new EOA with no Twitch involvement", async () => {
+      const twin = await twinFor(ALICE);
+      const n = await twin.nonce();
+      const t = await now();
+      const deadline = t + 600;
+      const ah = await twin.computeSetOwnerHash(aliceEOA.address, n, deadline);
+      await twin.setOwnerEOA(aliceEOA.address, n, deadline, t, ethers.toUtf8Bytes(mint(ALICE, t, ah)));
+
+      await twin.connect(aliceEOA).rotateOwnerEOA(newEOA.address);
+      expect(await twin.ownerEOA()).to.equal(newEOA.address);
+      // old EOA no longer works
+      await expect(
+        twin.connect(aliceEOA).executeAsOwner(recipient.address, 0n, "0x")
+      ).to.be.revertedWithCustomError(twin, "NotOwner");
+    });
+  });
+
+  // ─── Abandoned-funds rescue ──────────────────────────────────
+  describe("rescueAbandoned", () => {
+    it("rescuer can delegate a never-activated twin after RESCUE_DELAY", async () => {
+      const twin = await twinFor(ALICE);
+      await deployer.sendTransaction({ to: await twin.getAddress(), value: ethers.parseEther("2") });
+
+      expect(await twin.isRescuable()).to.equal(false); // too early
+      await ethers.provider.send("evm_increaseTime", [RESCUE_DELAY + 1]);
+      await ethers.provider.send("evm_mine", []);
+      expect(await twin.isRescuable()).to.equal(true);
+
+      await expect(twin.connect(rescuer).rescueAbandoned(communityEOA.address))
+        .to.emit(twin, "Rescued");
+      expect(await twin.ownerEOA()).to.equal(communityEOA.address);
+
+      // Delegated EOA now controls the funds.
+      const before = await ethers.provider.getBalance(recipient.address);
+      await twin.connect(communityEOA).executeAsOwner(recipient.address, ethers.parseEther("2"), "0x");
+      expect(await ethers.provider.getBalance(recipient.address) - before).to.equal(ethers.parseEther("2"));
+    });
+
+    it("rescue is blocked before the timelock", async () => {
+      const twin = await twinFor(ALICE);
+      await expect(
+        twin.connect(rescuer).rescueAbandoned(communityEOA.address)
+      ).to.be.revertedWithCustomError(twin, "RescueTooEarly");
+    });
+
+    it("rescue is blocked once the twin is activated (owner showed up)", async () => {
+      const twin = await twinFor(ALICE);
+      // Activate via setOwnerEOA
+      const n = await twin.nonce();
+      const t = await now();
+      const deadline = t + 600;
+      const ah = await twin.computeSetOwnerHash(aliceEOA.address, n, deadline);
+      await twin.setOwnerEOA(aliceEOA.address, n, deadline, t, ethers.toUtf8Bytes(mint(ALICE, t, ah)));
+
+      await ethers.provider.send("evm_increaseTime", [RESCUE_DELAY + 1]);
+      await ethers.provider.send("evm_mine", []);
+      await expect(
+        twin.connect(rescuer).rescueAbandoned(mallory.address)
+      ).to.be.revertedWithCustomError(twin, "AlreadyActivated");
+    });
+
+    it("rescue is blocked once the twin executed even once via JWT", async () => {
+      const twin = await twinFor(ALICE);
+      await deployer.sendTransaction({ to: await twin.getAddress(), value: ethers.parseEther("1") });
+      const n = await twin.nonce();
+      const t = await now();
+      const deadline = t + 600;
+      const ah = await twin.computeActionHash(recipient.address, 0n, "0x", n, deadline);
+      await twin.execute(recipient.address, 0n, "0x", n, deadline, t, ethers.toUtf8Bytes(mint(ALICE, t, ah)));
+
+      await ethers.provider.send("evm_increaseTime", [RESCUE_DELAY + 1]);
+      await ethers.provider.send("evm_mine", []);
+      await expect(
+        twin.connect(rescuer).rescueAbandoned(mallory.address)
+      ).to.be.revertedWithCustomError(twin, "AlreadyActivated");
+    });
+
+    it("only the factory's rescuer can rescue", async () => {
+      const twin = await twinFor(ALICE);
+      await ethers.provider.send("evm_increaseTime", [RESCUE_DELAY + 1]);
+      await ethers.provider.send("evm_mine", []);
+      await expect(
+        twin.connect(mallory).rescueAbandoned(mallory.address)
+      ).to.be.revertedWithCustomError(twin, "NotRescuer");
+    });
+
+    it("the real owner can still reclaim via JWT after a rescue (Twitch alive)", async () => {
+      const twin = await twinFor(ALICE);
+      await deployer.sendTransaction({ to: await twin.getAddress(), value: ethers.parseEther("1") });
+      await ethers.provider.send("evm_increaseTime", [RESCUE_DELAY + 1]);
+      await ethers.provider.send("evm_mine", []);
+      await twin.connect(rescuer).rescueAbandoned(communityEOA.address);
+
+      // Alice finally appears with a valid JWT and re-points the owner EOA to herself.
+      const n = await twin.nonce();
+      const t = await now();
+      const deadline = t + 600;
+      const ah = await twin.computeSetOwnerHash(aliceEOA.address, n, deadline);
+      await twin.setOwnerEOA(aliceEOA.address, n, deadline, t, ethers.toUtf8Bytes(mint(ALICE, t, ah)));
+      expect(await twin.ownerEOA()).to.equal(aliceEOA.address);
+    });
+
+    it("rescuer can be transferred to a DAO/multisig, but never to zero", async () => {
+      await expect(factory.connect(rescuer).transferRescuer(newEOA.address))
+        .to.emit(factory, "RescuerTransferred");
+      expect(await factory.rescuer()).to.equal(newEOA.address);
+      // old rescuer can no longer act
+      await expect(
+        factory.connect(rescuer).transferRescuer(mallory.address)
+      ).to.be.revertedWithCustomError(factory, "NotRescuer");
+      // role cannot be destroyed by transferring to zero
+      await expect(
+        factory.connect(newEOA).transferRescuer(ethers.ZeroAddress)
+      ).to.be.revertedWith("rescuer cannot be zero");
+    });
+
+    it("3-month timelock: rescuable exactly after 90 days, not before", async () => {
+      const twin = await twinFor(ALICE);
+      await ethers.provider.send("evm_increaseTime", [89 * 24 * 60 * 60]);
+      await ethers.provider.send("evm_mine", []);
+      expect(await twin.isRescuable()).to.equal(false);
+      await ethers.provider.send("evm_increaseTime", [2 * 24 * 60 * 60]);
+      await ethers.provider.send("evm_mine", []);
+      expect(await twin.isRescuable()).to.equal(true);
+    });
+  });
+});

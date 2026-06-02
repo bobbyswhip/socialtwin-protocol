@@ -1,0 +1,20 @@
+{
+  "name": "@socialtwin/sdk",
+  "version": "0.1.0",
+  "description": "Client SDK for the SocialTwin protocol. Predicts twin addresses, drives the attestor OAuth flow, and builds twin.execute() calldata.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p .",
+    "typecheck": "tsc -p . --noEmit"
+  },
+  "peerDependencies": {
+    "viem": "^2.21.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.0",
+    "typescript": "^5.6.2",
+    "viem": "^2.21.0"
+  },
+  "files": ["dist", "README.md"]
+}

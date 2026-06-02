@@ -1,0 +1,19 @@
+node_modules/
+artifacts/
+cache/
+typechain-types/
+coverage/
+coverage.json
+dist/
+*.tsbuildinfo
+
+# secrets / local config — never commit
+.env
+.env.*
+*.pem
+*.key
+
+# editor / os
+.DS_Store
+.idea/
+.vscode/

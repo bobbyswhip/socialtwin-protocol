@@ -1,0 +1,25 @@
+{
+  "name": "@socialtwin/contracts",
+  "version": "1.0.0",
+  "description": "Deterministic per-Twitch-user smart accounts on Base, claimable via on-chain Twitch OIDC JWT verification.",
+  "license": "MIT",
+  "scripts": {
+    "compile": "hardhat compile",
+    "clean": "hardhat clean",
+    "test": "hardhat test",
+    "test:gas": "REPORT_GAS=true hardhat test",
+    "deploy:stack:base": "hardhat run scripts/deploy-twin-stack.ts --network base",
+    "deploy:factory:base": "hardhat run scripts/deploy-twin-factory.ts --network base",
+    "deploy:local": "hardhat run scripts/deploy-local.ts --network hardhat"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "@openzeppelin/contracts": "^5.1.0",
+    "@types/jsonwebtoken": "^9.0.7",
+    "dotenv": "^16.4.5",
+    "hardhat": "^2.22.19",
+    "jsonwebtoken": "^9.0.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.2"
+  }
+}
