@@ -10,7 +10,8 @@
     "test:gas": "REPORT_GAS=true hardhat test",
     "deploy:stack:base": "hardhat run scripts/deploy-twin-stack.ts --network base",
     "deploy:factory:base": "hardhat run scripts/deploy-twin-factory.ts --network base",
-    "deploy:local": "hardhat run scripts/deploy-local.ts --network hardhat"
+    "deploy:local": "hardhat run scripts/deploy-local.ts --network hardhat",
+    "watchdog": "node monitoring/jwks-watchdog.js"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",

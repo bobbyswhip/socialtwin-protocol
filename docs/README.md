@@ -8,6 +8,7 @@ Adopter and operator guides. Start at the root [`README.md`](../README.md) for w
 
 ## Run / deploy it
 - [`DEPLOYMENT.md`](./DEPLOYMENT.md) — deploy + verify the stack; what to do after a contract change
+- [`../monitoring/`](../monitoring/) — the JWKS watchdog: run on a schedule to catch a Twitch key rotation (and a malicious queued key) within the timelock window
 
 ## Understand / evaluate it
 - [`../ARCHITECTURE.md`](../ARCHITECTURE.md) — how the pieces fit

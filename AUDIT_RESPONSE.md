@@ -17,7 +17,7 @@ The review found **no "anyone can forge and drain" vulnerability** and confirmed
 | 2 | OAuth blind-signing / allowlist trust | High | ✅ Mitigated (timelock + 7730 + docs) |
 | 3 | SDK hash computation bug | High/Med | ✅ Fixed (SDK) |
 | 4 | AttestorVerifier 1-of-N trust | Med | ✅ Removed |
-| 5 | JWT key-rotation risk | Med | ✅ Documented (playbook + watchdog) |
+| 5 | JWT key-rotation risk | Med | ✅ Fixed (v1.3 timelocked in-place rotation + watchdog) |
 | 6 | Custom parsing needs fuzzing | Med | ✅ Fuzz suite added; external audit still recommended |
 | 7 | Documentation / script drift | Low/Med | ✅ Fixed |
 
@@ -60,7 +60,7 @@ Because the clock runs from the rescuer's public signal — not from deploy — 
 
 **Issue.** Twitch's RSA moduli are baked into the verifier at construction; if Twitch rotates keys, the JWT path could stall.
 
-**Resolution (v1.3 — timelocked in-place rotation).** A naive admin `addKey` was rejected (it would let one compromised key forge "Twitch" JWTs and drain twins). v1.3 instead adds a **bounded** rotation: `keyAdmin` does `queueKey(kid, modulus)` → **7-day timelock** → `commitKey`, which updates the modulus **in place on the existing verifier** — so the same twins at the same addresses resume verifying, with **no migration and no permanent lock**. The danger of admin-injected keys is contained four ways: (1) the 7-day timelock, (2) the pending modulus is public so anyone can compare it to `id.twitch.tv/oauth2/keys` (a real rotation matches; a malicious key provably doesn't), (3) a **distinct `guardian`** key can `cancelKey` to veto, and `keyAdmin` cannot reassign the guardian, (4) **self-custodied twins use no JWT** and are immune. Residual: `keyAdmin`+`guardian` both compromised, unnoticed for 7 days, and affected users not self-custodied → forgery possible. That bounded trust is taken deliberately to eliminate the permanent-lock failure mode. Tests: `test/KeyRotation.test.ts`. See `SECURITY.md` → "Twitch key rotation."
+**Resolution (v1.3 — timelocked in-place rotation).** A naive admin `addKey` was rejected (it would let one compromised key forge "Twitch" JWTs and drain twins). v1.3 instead adds a **bounded** rotation: `keyAdmin` does `queueKey(kid, modulus)` → **7-day timelock** → `commitKey`, which updates the modulus **in place on the existing verifier** — so the same twins at the same addresses resume verifying, with **no migration and no permanent lock**. The danger of admin-injected keys is contained four ways: (1) the 7-day timelock, (2) the pending modulus is public so anyone can compare it to `id.twitch.tv/oauth2/keys` (a real rotation matches; a malicious key provably doesn't), (3) a **distinct `guardian`** key can `cancelKey` to veto, and `keyAdmin` cannot reassign the guardian, (4) **self-custodied twins use no JWT** and are immune. Residual: `keyAdmin`+`guardian` both compromised, unnoticed for 7 days, and affected users not self-custodied → forgery possible. That bounded trust is taken deliberately to eliminate the permanent-lock failure mode. Tests: `test/KeyRotation.test.ts`. The watchdog at `monitoring/jwks-watchdog.js` cross-checks a queued key against Twitch's live JWKS (critical on mismatch) so the guardian gets the veto signal in time. See `SECURITY.md` → "Twitch key rotation."
 
 ## Finding 6 — Custom parsing needs fuzzing (Medium) ✅ Suite added
 

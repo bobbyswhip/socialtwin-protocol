@@ -192,6 +192,7 @@ test/          Hardhat suite: TwinAccount, TwinV2Features, TwitchJWTVerifier, Fu
 scripts/       Deployment scripts (stack, factory, local)
 sdk/           TypeScript SDK: off-chain address prediction + Twitch-OIDC flow helpers + ABIs
 clear-signing/ ERC-7730 descriptor for the owner-EOA wallet path
+monitoring/    JWKS watchdog — key-rotation early warning (run on a schedule)
 docs/          INTEGRATION, DEPLOYMENT, index
 *.md           ARCHITECTURE, PROTOCOL, SECURITY, PERMANENCE, AUDIT_RESPONSE, RED_TEAM_FINDINGS, CHANGELOG
 ```

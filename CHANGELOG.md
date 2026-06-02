@@ -8,6 +8,7 @@ Guarantees a Twitch signing-key rotation can never permanently lock funds. **Dep
 
 ### Added
 - `TwitchJWTVerifier`: `queueKey` → `KEY_TIMELOCK` (7 days) → `commitKey` rotates/adds a Twitch RSA key **in place** (same verifier ⇒ same twin addresses, no migration, no permanent lock). A **distinct `guardian`** role can `cancelKey` to veto a pending key; `keyAdmin` cannot reassign the guardian. Pending modulus is public via `pendingKeyFor` for JWKS comparison. New roles `keyAdmin`/`guardian` (constructor now takes both); errors `NotKeyAdmin`/`NotGuardianNorKeyAdmin`/`KeyNotQueued`/`KeyTimelockNotElapsed`/`BadModulusLength`; `test/KeyRotation.test.ts` (9 tests; 84 total).
+- `monitoring/jwks-watchdog.js`: standalone JWKS watchdog (ethers + fetch). Reconciles the live verifier's `modulusOf`/`pendingKeyFor` against Twitch's JWKS; **critical** (non-zero exit) if a *queued* rotation doesn't match the live JWKS, so the guardian gets the veto signal within the timelock. `npm run watchdog`.
 
 ### Note
 - `TwinAccount`/`TwinFactory` source is unchanged from v1.2, but a new verifier ⇒ new twin addresses, so v1.2 (`0xe717…`/`0xEaD1…`) is deprecated. Residual trust of the rotation path documented in `SECURITY.md` / `AUDIT_RESPONSE.md` (Finding 5).
