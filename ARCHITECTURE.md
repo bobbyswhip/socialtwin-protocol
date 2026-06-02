@@ -1,3 +1,16 @@
+> **⚠️ Superseded (v1.1, post-audit):** This document predates the audit response and describes the earlier **attestor / off-chain-signer** model, which was **removed**. The deployed protocol verifies Twitch JWTs **entirely onchain** (`TwitchJWTVerifier`), with a two-phase abandoned-funds rescue and a timelocked `aud` allowlist. For the current design see [`README.md`](README.md) and [`AUDIT_RESPONSE.md`](AUDIT_RESPONSE.md); the onchain-JWT review is in [`SECURITY_REVIEW.md`](SECURITY_REVIEW.md). Retained for historical context.
+
+## Privileged roles (current, v1.1)
+
+The deployed protocol has exactly two onchain privileged roles, neither of which can move an active user's funds:
+
+- **`audAdmin`** (on `TwitchJWTVerifier`) — curates the anti-phishing `aud` allowlist. New `aud`s are **timelocked 2 days** (`queueAud` → `commitAud`); `removeAud`, `setAudCheckEnabled(false)` and `lockOpenForever()` are immediate (the safety direction is never delayed). Cannot move funds. Should be a multisig; `lockOpenForever()` permanently drops the role.
+- **`rescuer`** (on `TwinFactory`) — runs the two-phase abandoned-funds rescue (`initiateRescue` → 90-day public window → `completeRescue`) on **never-activated** twins only. Non-renounceable but transferable to a DAO/multisig. Can never touch a twin whose owner has shown up.
+
+Off-chain, an optional **relayer** sponsors gas but is powerless — the JWT (or owner signature) is the authorization and `execute` is permissionless.
+
+---
+
 # Architecture
 
 One page on how the pieces fit. For wire formats see [`PROTOCOL.md`](./PROTOCOL.md).

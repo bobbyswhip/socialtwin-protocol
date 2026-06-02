@@ -12,7 +12,7 @@ import { TWIN_ACCOUNT_INIT_CODE } from "./abis";
  * `TwinFactory.predictAddress(userId)` byte-for-byte — anyone can derive
  * the address without an RPC round-trip.
  *
- *   salt = keccak256("SocialTwin:twitch:v1" || uint64(userId))
+ *   salt = keccak256("SocialTwin:twitch:v2" || uint64(userId))
  *   bytecode = TwinAccount.creationCode || abi.encode(userId, verifier)
  *   address = CREATE2(factory, salt, keccak256(bytecode))
  */

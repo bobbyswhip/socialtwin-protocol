@@ -16,7 +16,8 @@ async function main() {
   if (!verifierAddr) throw new Error(`No verifier known for chain ${chainId}`);
   console.log(`\nUsing TwitchJWTVerifier: ${verifierAddr}`);
 
-  // Rescuer = deployer by default (renounceable later via factory.renounceRescuer()).
+  // Rescuer = deployer by default. The role is NOT renounceable, but it is
+  // transferable to a multisig/DAO later via factory.transferRescuer(newAddr).
   const rescuer = process.env.RESCUER_ADDRESS || deployer.address;
   const Factory = await ethers.getContractFactory("TwinFactory");
   const factory = await Factory.deploy(verifierAddr, rescuer);

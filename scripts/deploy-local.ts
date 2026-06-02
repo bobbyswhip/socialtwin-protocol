@@ -41,12 +41,16 @@ async function main() {
   const pubPem = publicKey.export({ type: "spki", format: "pem" }) as string;
   const modulusHex = rsaModulusHex(pubPem);
 
-  // 2. Deploy verifier with the test modulus.
+  // 2. Deploy verifier with the test modulus. Constructor is
+  //    (kids, moduli, auds, audAdmin). For the local harness we seed a dummy
+  //    aud and then turn the aud check OFF so the mock issuer can use any
+  //    client_id without coordination.
   const Verifier = await ethers.getContractFactory("TwitchJWTVerifier");
-  const verifier = await Verifier.deploy([KID], [modulusHex]);
+  const verifier = await Verifier.deploy([KID], [modulusHex], ["local-dev"], deployer.address);
   await verifier.waitForDeployment();
+  await (await verifier.setAudCheckEnabled(false)).wait();
   const verifierAddr = await verifier.getAddress();
-  console.log(`TwitchJWTVerifier (TEST key): ${verifierAddr}`);
+  console.log(`TwitchJWTVerifier (TEST key, aud-check off for local): ${verifierAddr}`);
 
   // 3. Deploy factory (rescuer = deployer for the harness).
   const Factory = await ethers.getContractFactory("TwinFactory");

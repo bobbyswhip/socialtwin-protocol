@@ -4,7 +4,9 @@
 
 SocialTwin gives every Twitch account a deterministic smart-contract wallet (a "twin") whose address is derived purely from the Twitch numeric `user_id`. Anyone can send funds to a streamer by their Twitch identity — community-coin trading fees, tips, rewards — **before that streamer has ever connected a wallet, signed a transaction, or even heard of the protocol**. The streamer later claims and controls the twin by signing in with Twitch, with the login proof **verified entirely onchain**. There is no oracle, no witness network, and no off-chain protocol in the trust path.
 
-> **Status:** Live on Base mainnet. Internally red-teamed (0 critical/high on the contracts). **Not yet externally audited — do not route large value until it is.** This repository is under private review.
+> **Status:** Live on Base mainnet (v1.0). Internally red-teamed + an external review by Sterling Crispin — see [`AUDIT_RESPONSE.md`](AUDIT_RESPONSE.md) for the findings and fixes. **Not yet fully audited — do not route large value until it is.**
+>
+> ⚠️ **The live mainnet addresses below are the pre-audit v1.0 contracts.** The audit fixes (intent-based rescue, aud-add timelock) are landed in source and require a fresh deploy (v1.1) to take effect onchain — **not yet deployed**.
 
 ---
 
@@ -106,15 +108,24 @@ const twin = predictTwinAddress({
 
 ### Build a claim
 ```ts
-import { buildSpendFlow } from "@socialtwin/sdk";
+import { buildSpendFlow, parseReturnFragment, buildExecuteCall } from "@socialtwin/sdk";
 
-const { redirectUrl, actionHash } = buildSpendFlow(config, {
-  twin, userId, target: recipient, value, data: "0x",
+const cfg = {
+  chainId: 8453,
+  factoryAddress: "0x942C079aA7458fDc89cFd1FAc00555fA6Beb77Ff",
+  twitchClientId: "<your Twitch app client_id>", // must be allowlisted as an `aud`
+  redirectUri: "https://yourapp.example/claim",  // must match the Twitch app exactly
+};
+// IMPORTANT: show the user the exact action (recipient, amount) in YOUR UI before redirecting —
+// the Twitch consent screen can't display it. The action hash binds the JWT to this exact call.
+const { redirectUrl } = buildSpendFlow(cfg, {
+  twin, userId, target: recipient, value, data: "0x", nonce, deadline,
 });
-// 1. redirect the user to `redirectUrl` (Twitch consent)
-// 2. read id_token from the return URL fragment
-// 3. call twin.execute(target, value, data, nonce, deadline, iat, jwtBytes)
-//    — from the user's wallet, OR via any relayer (the JWT is the auth)
+window.location.href = redirectUrl;                 // Twitch OIDC (response_type=id_token)
+
+// …on return:
+const jwt = parseReturnFragment(window.location.hash);  // reads the id_token from the fragment
+await walletClient.writeContract(buildExecuteCall(intent, jwt)); // or relay it gaslessly
 ```
 
 See [`docs/INTEGRATION.md`](docs/INTEGRATION.md) and [`docs/FRONTEND_SDK.md`](docs/FRONTEND_SDK.md) for the full flow, and [`sdk/`](sdk/) for the helper library.
@@ -130,9 +141,9 @@ See [`docs/INTEGRATION.md`](docs/INTEGRATION.md) and [`docs/FRONTEND_SDK.md`](do
 | No user can spend another user's twin | verifier enforces `sub == userId`; action hash binds `userId` + twin address |
 | Permissionless settlement | `execute` has no `msg.sender` check — any wallet can submit a valid JWT |
 | No replay / cross-twin / cross-chain reuse | action hash binds chainid, twin, nonce, deadline, target, value, calldata; 5-min freshness |
-| Anti-phishing | only allowlisted OAuth `aud`s accepted (a malicious site's own Twitch app yields a different `aud` → rejected) |
+| Anti-phishing | only allowlisted OAuth `aud`s accepted (a malicious site's own Twitch app yields a different `aud` → rejected); new `aud`s are timelocked 2 days |
 | Survives operator death | deterministic addresses + permissionless `execute` + wallet-owned `executeAsOwner` |
-| No admin over user funds | treasury can curate the app allowlist and rescue *never-claimed* twins after 90 days — nothing more |
+| No admin over user funds | treasury can curate the app allowlist and recover *never-claimed* twins via a two-phase rescue (signal intent → 90-day public window → complete) — nothing more, and never a twin whose owner showed up |
 
 **Honest residual risks:**
 - The onchain JWT verifier (RSA + base64url + JSON parsing in Solidity) is intricate and **not yet externally audited**. Internally red-teamed with 22+ adversarial vectors (forged signatures, `alg=none`/confusion, JSON injection, cross-user, replay, audience phishing); findings and fixes in [`RED_TEAM_FINDINGS.md`](RED_TEAM_FINDINGS.md) and [`SECURITY_REVIEW.md`](SECURITY_REVIEW.md).
@@ -161,10 +172,9 @@ So the trust dial reads: *curated allowlist now (we approve your app on request)
 | File | Purpose |
 |---|---|
 | [`contracts/TwinFactory.sol`](contracts/TwinFactory.sol) | `CREATE2` factory; `predictAddress`, `deployTwin`, `rescuer` role |
-| [`contracts/TwinAccount.sol`](contracts/TwinAccount.sol) | Per-user account: `execute`/`executeBatch` (JWT), `executeAsOwner` (wallet), `setOwnerEOA`, `rescueAbandoned` |
-| [`contracts/TwitchJWTVerifier.sol`](contracts/TwitchJWTVerifier.sol) | Onchain RSA/SHA-256 JWT verification + `aud` allowlist + off-switch |
+| [`contracts/TwinAccount.sol`](contracts/TwinAccount.sol) | Per-user account: `execute`/`executeBatch` (JWT), `executeAsOwner` (wallet), `setOwnerEOA`, `initiateRescue`/`completeRescue` |
+| [`contracts/TwitchJWTVerifier.sol`](contracts/TwitchJWTVerifier.sol) | Onchain RSA/SHA-256 JWT verification + timelocked `aud` allowlist + off-switch |
 | [`contracts/interfaces/IVerifier.sol`](contracts/interfaces/IVerifier.sol) | `verify(userId, actionHash, epoch, proof)` — pluggable verifier interface |
-| [`contracts/AttestorVerifier.sol`](contracts/AttestorVerifier.sol) | Optional ECDSA-attestor verifier (~30k gas alternative; trades onchain verification for an attestor set) — not part of the deployed stack |
 | `contracts/SocialTwinEscrow.sol` | Legacy escrow-model prototype, retained for reference; not deployed |
 
 Per-function reference: [`contracts/README.md`](contracts/README.md) and [`ARCHITECTURE.md`](ARCHITECTURE.md). JWT format and binding spec: [`PROTOCOL.md`](PROTOCOL.md).

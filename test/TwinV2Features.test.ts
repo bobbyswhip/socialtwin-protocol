@@ -132,37 +132,51 @@ describe("TwinAccount v2 — escape EOA + rescue", () => {
     });
   });
 
-  // ─── Abandoned-funds rescue ──────────────────────────────────
-  describe("rescueAbandoned", () => {
-    it("rescuer can delegate a never-activated twin after RESCUE_DELAY", async () => {
+  // ─── Abandoned-funds rescue (intent-based: initiate → wait → complete) ──
+  describe("rescue (initiateRescue → wait → completeRescue)", () => {
+    it("rescuer initiates, then completes after RESCUE_DELAY", async () => {
       const twin = await twinFor(ALICE);
       await deployer.sendTransaction({ to: await twin.getAddress(), value: ethers.parseEther("2") });
 
-      expect(await twin.isRescuable()).to.equal(false); // too early
+      // Not rescuable until intent is signalled — even long after deploy.
+      await ethers.provider.send("evm_increaseTime", [RESCUE_DELAY + 1]);
+      await ethers.provider.send("evm_mine", []);
+      expect(await twin.isRescuable()).to.equal(false);
+      expect(await twin.rescueAllowedAt()).to.equal(0n);
+
+      await expect(twin.connect(rescuer).initiateRescue()).to.emit(twin, "RescueInitiated");
+      expect(await twin.isRescuable()).to.equal(false); // delay runs from intent, not deploy
       await ethers.provider.send("evm_increaseTime", [RESCUE_DELAY + 1]);
       await ethers.provider.send("evm_mine", []);
       expect(await twin.isRescuable()).to.equal(true);
 
-      await expect(twin.connect(rescuer).rescueAbandoned(communityEOA.address))
-        .to.emit(twin, "Rescued");
+      await expect(twin.connect(rescuer).completeRescue(communityEOA.address)).to.emit(twin, "Rescued");
       expect(await twin.ownerEOA()).to.equal(communityEOA.address);
 
-      // Delegated EOA now controls the funds.
       const before = await ethers.provider.getBalance(recipient.address);
       await twin.connect(communityEOA).executeAsOwner(recipient.address, ethers.parseEther("2"), "0x");
       expect(await ethers.provider.getBalance(recipient.address) - before).to.equal(ethers.parseEther("2"));
     });
 
-    it("rescue is blocked before the timelock", async () => {
+    it("completeRescue is blocked before the timelock", async () => {
       const twin = await twinFor(ALICE);
-      await expect(
-        twin.connect(rescuer).rescueAbandoned(communityEOA.address)
-      ).to.be.revertedWithCustomError(twin, "RescueTooEarly");
+      await twin.connect(rescuer).initiateRescue();
+      await expect(twin.connect(rescuer).completeRescue(communityEOA.address))
+        .to.be.revertedWithCustomError(twin, "RescueTooEarly");
     });
 
-    it("rescue is blocked once the twin is activated (owner showed up)", async () => {
+    it("completeRescue without a prior initiate reverts", async () => {
       const twin = await twinFor(ALICE);
-      // Activate via setOwnerEOA
+      await ethers.provider.send("evm_increaseTime", [RESCUE_DELAY + 1]);
+      await ethers.provider.send("evm_mine", []);
+      await expect(twin.connect(rescuer).completeRescue(communityEOA.address))
+        .to.be.revertedWithCustomError(twin, "RescueNotInitiated");
+    });
+
+    it("the owner showing up before completion cancels the rescue", async () => {
+      const twin = await twinFor(ALICE);
+      await twin.connect(rescuer).initiateRescue();
+      // Alice appears and connects her EOA before the delay elapses.
       const n = await twin.nonce();
       const t = await now();
       const deadline = t + 600;
@@ -171,12 +185,11 @@ describe("TwinAccount v2 — escape EOA + rescue", () => {
 
       await ethers.provider.send("evm_increaseTime", [RESCUE_DELAY + 1]);
       await ethers.provider.send("evm_mine", []);
-      await expect(
-        twin.connect(rescuer).rescueAbandoned(mallory.address)
-      ).to.be.revertedWithCustomError(twin, "AlreadyActivated");
+      await expect(twin.connect(rescuer).completeRescue(mallory.address))
+        .to.be.revertedWithCustomError(twin, "AlreadyActivated");
     });
 
-    it("rescue is blocked once the twin executed even once via JWT", async () => {
+    it("cannot even initiate on a twin already activated via JWT", async () => {
       const twin = await twinFor(ALICE);
       await deployer.sendTransaction({ to: await twin.getAddress(), value: ethers.parseEther("1") });
       const n = await twin.nonce();
@@ -184,29 +197,28 @@ describe("TwinAccount v2 — escape EOA + rescue", () => {
       const deadline = t + 600;
       const ah = await twin.computeActionHash(recipient.address, 0n, "0x", n, deadline);
       await twin.execute(recipient.address, 0n, "0x", n, deadline, t, ethers.toUtf8Bytes(mint(ALICE, t, ah)));
-
-      await ethers.provider.send("evm_increaseTime", [RESCUE_DELAY + 1]);
-      await ethers.provider.send("evm_mine", []);
-      await expect(
-        twin.connect(rescuer).rescueAbandoned(mallory.address)
-      ).to.be.revertedWithCustomError(twin, "AlreadyActivated");
+      await expect(twin.connect(rescuer).initiateRescue())
+        .to.be.revertedWithCustomError(twin, "AlreadyActivated");
     });
 
-    it("only the factory's rescuer can rescue", async () => {
+    it("only the factory's rescuer can initiate or complete", async () => {
       const twin = await twinFor(ALICE);
+      await expect(twin.connect(mallory).initiateRescue())
+        .to.be.revertedWithCustomError(twin, "NotRescuer");
+      await twin.connect(rescuer).initiateRescue();
       await ethers.provider.send("evm_increaseTime", [RESCUE_DELAY + 1]);
       await ethers.provider.send("evm_mine", []);
-      await expect(
-        twin.connect(mallory).rescueAbandoned(mallory.address)
-      ).to.be.revertedWithCustomError(twin, "NotRescuer");
+      await expect(twin.connect(mallory).completeRescue(mallory.address))
+        .to.be.revertedWithCustomError(twin, "NotRescuer");
     });
 
     it("the real owner can still reclaim via JWT after a rescue (Twitch alive)", async () => {
       const twin = await twinFor(ALICE);
       await deployer.sendTransaction({ to: await twin.getAddress(), value: ethers.parseEther("1") });
+      await twin.connect(rescuer).initiateRescue();
       await ethers.provider.send("evm_increaseTime", [RESCUE_DELAY + 1]);
       await ethers.provider.send("evm_mine", []);
-      await twin.connect(rescuer).rescueAbandoned(communityEOA.address);
+      await twin.connect(rescuer).completeRescue(communityEOA.address);
 
       // Alice finally appears with a valid JWT and re-points the owner EOA to herself.
       const n = await twin.nonce();
@@ -221,24 +233,26 @@ describe("TwinAccount v2 — escape EOA + rescue", () => {
       await expect(factory.connect(rescuer).transferRescuer(newEOA.address))
         .to.emit(factory, "RescuerTransferred");
       expect(await factory.rescuer()).to.equal(newEOA.address);
-      // old rescuer can no longer act
       await expect(
         factory.connect(rescuer).transferRescuer(mallory.address)
       ).to.be.revertedWithCustomError(factory, "NotRescuer");
-      // role cannot be destroyed by transferring to zero
       await expect(
         factory.connect(newEOA).transferRescuer(ethers.ZeroAddress)
       ).to.be.revertedWith("rescuer cannot be zero");
     });
 
-    it("3-month timelock: rescuable exactly after 90 days, not before", async () => {
+    it("pre-deploy timing attack neutralized: clock runs from intent, not deploy", async () => {
+      // Anyone can pre-deploy a victim's twin a long time ago...
       const twin = await twinFor(ALICE);
-      await ethers.provider.send("evm_increaseTime", [89 * 24 * 60 * 60]);
+      await ethers.provider.send("evm_increaseTime", [365 * 24 * 60 * 60]); // a year passes
       await ethers.provider.send("evm_mine", []);
+      // ...funds arrive only now...
+      await deployer.sendTransaction({ to: await twin.getAddress(), value: ethers.parseEther("5") });
+      // ...the rescuer still owes a fresh full RESCUE_DELAY window.
       expect(await twin.isRescuable()).to.equal(false);
-      await ethers.provider.send("evm_increaseTime", [2 * 24 * 60 * 60]);
-      await ethers.provider.send("evm_mine", []);
-      expect(await twin.isRescuable()).to.equal(true);
+      await twin.connect(rescuer).initiateRescue();
+      await expect(twin.connect(rescuer).completeRescue(communityEOA.address))
+        .to.be.revertedWithCustomError(twin, "RescueTooEarly");
     });
   });
 });

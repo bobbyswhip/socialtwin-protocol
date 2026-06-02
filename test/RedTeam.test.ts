@@ -163,10 +163,14 @@ describe("RED TEAM", () => {
       .to.be.revertedWithCustomError(verifier, "WrongAudience");
   });
 
-  it("B4 aud allowlist is curated: admin adds an app, then a token for it works; remove kills it", async () => {
+  it("B4 aud allowlist is curated (timelocked add): admin queues+commits an app; remove kills it", async () => {
     const twin = await twinFor(ALICE); await fund(twin, "0.03");
-    // a second official app id, not in the initial allowlist (["a"])
-    await verifier.connect(deployer).addAud("second-official-app");
+    // a second official app id, not in the initial allowlist (["a"]).
+    // Adds are timelocked: queue → wait AUD_TIMELOCK → commit.
+    await verifier.connect(deployer).queueAud("second-official-app");
+    await ethers.provider.send("evm_increaseTime", [2 * 24 * 60 * 60 + 1]); // AUD_TIMELOCK
+    await ethers.provider.send("evm_mine", []);
+    await verifier.connect(deployer).commitAud("second-official-app");
     // token with the newly-approved aud verifies
     {
       const n = await twin.nonce(); const t = await now(); const dl = BigInt(t + 600);
@@ -187,7 +191,7 @@ describe("RED TEAM", () => {
         .to.be.revertedWithCustomError(verifier, "WrongAudience");
     }
     // non-admin cannot curate
-    await expect(verifier.connect(attacker).addAud("evil-app")).to.be.revertedWithCustomError(verifier, "NotAudAdmin");
+    await expect(verifier.connect(attacker).queueAud("evil-app")).to.be.revertedWithCustomError(verifier, "NotAudAdmin");
   });
 
   it("B5 open mode: aud check OFF accepts any app; lockOpenForever is irreversible", async () => {
@@ -304,24 +308,41 @@ describe("RED TEAM", () => {
     await expect(twin.connect(attacker).rotateOwnerEOA(attacker.address)).to.be.revertedWithCustomError(twin, "NotOwner");
   });
 
-  // ── F. Rescue ───────────────────────────────────────────────────────
-  it("F1 non-rescuer cannot rescue", async () => {
+  // ── F. Rescue (intent-based: initiateRescue → wait → completeRescue) ──
+  it("F1 non-rescuer cannot initiate or complete a rescue", async () => {
     const twin = await twinFor(ALICE); await fund(twin);
+    await expect(twin.connect(attacker).initiateRescue()).to.be.revertedWithCustomError(twin, "NotRescuer");
+    await twin.connect(rescuer).initiateRescue();
     await ethers.provider.send("evm_increaseTime", [91 * 24 * 60 * 60]); await ethers.provider.send("evm_mine", []);
-    await expect(twin.connect(attacker).rescueAbandoned(attacker.address)).to.be.revertedWithCustomError(twin, "NotRescuer");
+    await expect(twin.connect(attacker).completeRescue(attacker.address)).to.be.revertedWithCustomError(twin, "NotRescuer");
   });
 
-  it("F2 rescuer cannot rescue before timelock", async () => {
+  it("F2 rescuer cannot complete before the timelock (clock runs from intent)", async () => {
     const twin = await twinFor(ALICE); await fund(twin);
-    await expect(twin.connect(rescuer).rescueAbandoned(rescuer.address)).to.be.revertedWithCustomError(twin, "RescueTooEarly");
+    await twin.connect(rescuer).initiateRescue();
+    await expect(twin.connect(rescuer).completeRescue(rescuer.address)).to.be.revertedWithCustomError(twin, "RescueTooEarly");
+  });
+
+  it("F2b completeRescue without a prior initiate reverts", async () => {
+    const twin = await twinFor(ALICE); await fund(twin);
+    await ethers.provider.send("evm_increaseTime", [91 * 24 * 60 * 60]); await ethers.provider.send("evm_mine", []);
+    await expect(twin.connect(rescuer).completeRescue(rescuer.address)).to.be.revertedWithCustomError(twin, "RescueNotInitiated");
   });
 
   it("F3 rescuer cannot rescue an activated twin", async () => {
     const twin = await twinFor(ALICE); await fund(twin);
     const { token, n, dl, iat, bal } = await withdrawJwt(twin, twitchKey, ALICE);
     await twin.connect(relayer).execute(dest.address, bal, "0x", n, dl, iat, ethers.toUtf8Bytes(token)); // activates
-    await ethers.provider.send("evm_increaseTime", [91 * 24 * 60 * 60]); await ethers.provider.send("evm_mine", []);
-    await expect(twin.connect(rescuer).rescueAbandoned(rescuer.address)).to.be.revertedWithCustomError(twin, "AlreadyActivated");
+    await expect(twin.connect(rescuer).initiateRescue()).to.be.revertedWithCustomError(twin, "AlreadyActivated");
+  });
+
+  it("F4 pre-deploy timing attack neutralized: a year-old twin still owes a fresh 90-day window", async () => {
+    const twin = await twinFor(ALICE);
+    await ethers.provider.send("evm_increaseTime", [365 * 24 * 60 * 60]); await ethers.provider.send("evm_mine", []);
+    await fund(twin); // funds arrive only now
+    expect(await twin.isRescuable()).to.equal(false);
+    await twin.connect(rescuer).initiateRescue();
+    await expect(twin.connect(rescuer).completeRescue(rescuer.address)).to.be.revertedWithCustomError(twin, "RescueTooEarly");
   });
 
   // ── G. Factory / determinism ────────────────────────────────────────

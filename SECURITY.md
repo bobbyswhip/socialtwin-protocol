@@ -1,3 +1,5 @@
+> **⚠️ Superseded (v1.1, post-audit):** This document predates the audit response and describes the earlier **attestor / off-chain-signer** model, which was **removed**. The deployed protocol verifies Twitch JWTs **entirely onchain** (`TwitchJWTVerifier`), with a two-phase abandoned-funds rescue and a timelocked `aud` allowlist. For the current design see [`README.md`](README.md) and [`AUDIT_RESPONSE.md`](AUDIT_RESPONSE.md); the onchain-JWT review is in [`SECURITY_REVIEW.md`](SECURITY_REVIEW.md). Retained for historical context.
+
 # Security
 
 This document is the formal threat model. The audit report on the prior onchain JWT design is preserved at `SECURITY_REVIEW.md`. This file covers the **current attestor-based design** plus residual risk for both.

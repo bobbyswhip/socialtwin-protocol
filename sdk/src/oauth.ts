@@ -1,19 +1,26 @@
-import type { SocialTwinConfig, SpendIntent, SpendFlow, AttestationResult } from "./types";
+import type { SocialTwinConfig, SpendIntent, SpendFlow, JwtResult } from "./types";
 import { computeActionHash } from "./execute";
 import type { Hex } from "viem";
 
+const TWITCH_AUTHORIZE = "https://id.twitch.tv/oauth2/authorize";
+
 /**
- * Build the URL that kicks off the attestor's OAuth round-trip.
+ * Build the URL that starts the Twitch OIDC implicit flow. The dApp redirects
+ * the user here (top-level navigation). The action being authorized is bound
+ * into the OAuth `nonce` as the twin's action hash; Twitch echoes it into the
+ * signed id_token, which `TwitchJWTVerifier` checks onchain.
  *
- * The dApp redirects the user to this URL (top-level navigation). After
- * the user completes the IdP flow, the attestor signs an attestation and
- * bounces back to `intent.returnTo#attestation=...&user_id=...`.
+ * ⚠ ANTI BLIND-SIGNING — IMPORTANT: the user only sees Twitch's generic
+ * consent screen and CANNOT see target/value there. Your dApp MUST display the
+ * exact action (recipient, amount, twin) to the user BEFORE calling this. The
+ * action hash binds the JWT to that exact call so a tampered call reverts
+ * onchain, but the human approving still needs to see what they're approving.
  */
 export function buildSpendFlow(cfg: SocialTwinConfig, intent: SpendIntent): SpendFlow {
   const actionHash = computeActionHash({
     chainId: BigInt(cfg.chainId),
     twin: intent.twin,
-    userId: 0n, // userId is bound implicitly through the twin's immutable userId onchain
+    userId: intent.userId, // bind the REAL userId — the verifier enforces sub == userId
     target: intent.target,
     value: intent.value,
     data: intent.data,
@@ -22,33 +29,61 @@ export function buildSpendFlow(cfg: SocialTwinConfig, intent: SpendIntent): Spen
   });
 
   const params = new URLSearchParams({
-    action_hash: actionHash,
-    return_to: intent.returnTo,
+    client_id: cfg.twitchClientId,
+    redirect_uri: cfg.redirectUri,
+    response_type: "id_token",
+    scope: "openid",
+    nonce: actionHash, // the binding mechanism (OIDC §3.1.2.1)
+    force_verify: "true", // re-prompt consent every time (freshness + phishing resistance)
   });
-  const redirectUrl = `${cfg.attestorOrigin.replace(/\/$/, "")}/attest/${cfg.provider}/start?${params.toString()}`;
-  return { redirectUrl, actionHash };
+  return { redirectUrl: `${TWITCH_AUTHORIZE}?${params.toString()}`, actionHash };
+}
+
+/** Base64url-decode a JWT segment to a UTF-8 string (browser + Node). */
+function b64urlToString(seg: string): string {
+  const pad = (4 - (seg.length % 4)) % 4;
+  const b64 = seg.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat(pad);
+  if (typeof atob === "function") {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new TextDecoder().decode(bytes);
+  }
+  // Node fallback
+  return Buffer.from(b64, "base64").toString("utf-8");
 }
 
 /**
- * Parse the attestation the attestor put in the URL fragment after the
- * user returned from the IdP flow.
+ * Decode a JWT payload (claims) WITHOUT verifying — verification happens
+ * entirely onchain in `TwitchJWTVerifier`. Use this only to read sub/iat/nonce
+ * client-side; never trust it as proof.
  */
-export function parseReturnFragment(hash: string): AttestationResult {
+export function decodeJwtPayload(idToken: string): Record<string, any> {
+  const parts = idToken.split(".");
+  if (parts.length !== 3) throw new Error("malformed JWT");
+  return JSON.parse(b64urlToString(parts[1]));
+}
+
+/**
+ * Parse the id_token Twitch placed in the URL fragment after the user returned.
+ * Throws if Twitch returned an error or no token.
+ */
+export function parseReturnFragment(hash: string): JwtResult {
   const trimmed = hash.startsWith("#") ? hash.slice(1) : hash;
   const params = new URLSearchParams(trimmed);
-  const required = (k: string): string => {
-    const v = params.get(k);
-    if (!v) throw new Error(`Missing fragment param: ${k}`);
-    return v;
-  };
+  const idToken = params.get("id_token");
+  if (!idToken) {
+    const err = params.get("error_description") || params.get("error");
+    throw new Error(err ? `Twitch returned: ${err}` : "Missing id_token in URL fragment");
+  }
+  const claims = decodeJwtPayload(idToken);
   return {
-    attestation: required("attestation") as Hex,
-    userId: BigInt(required("user_id")),
-    epoch: BigInt(required("epoch")),
-    actionHash: required("action_hash") as Hex,
-    signer: required("signer") as `0x${string}`,
-    provider: required("provider"),
-    preferredUsername: params.get("preferred_username") ?? undefined,
-    picture: params.get("picture") ?? undefined,
+    idToken,
+    userId: BigInt(String(claims.sub)),
+    epoch: BigInt(Number(claims.iat)),
+    actionHash: String(claims.nonce) as Hex,
+    aud: String(claims.aud),
+    preferredUsername: claims.preferred_username,
+    picture: claims.picture,
   };
 }

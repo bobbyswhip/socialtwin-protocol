@@ -1,19 +1,21 @@
 /**
  * @socialtwin/sdk
  *
- * Browser-side client for the SocialTwin protocol. UI-agnostic — gives
- * you primitives (predict address, build OAuth URL, parse attestation,
- * encode execute call) and you wire them into your own React/Vue/Svelte
- * components.
+ * Browser-side client for the SocialTwin protocol. UI-agnostic — it gives you
+ * primitives (predict address, build the Twitch OIDC URL, parse the returned
+ * id_token, encode the execute call) and you wire them into your own UI.
  *
- * Usage in three lines:
- *   const sdk = createSocialTwinClient({ chain, attestorOrigin, factoryAddress });
- *   const flow = sdk.startSpend({ twin, target, value, data, deadline });
- *   window.location.href = flow.redirectUrl; // user signs in with their IdP, returns to your page
+ * The flow is the deployed Twitch-JWT design — the id_token is verified
+ * entirely onchain by TwitchJWTVerifier. There is no attestor / off-chain
+ * signer in the trust path.
+ *
+ * Usage:
+ *   const flow = buildSpendFlow(cfg, { twin, userId, target, value, data, nonce, deadline });
+ *   window.location.href = flow.redirectUrl;     // user signs in with Twitch, returns to redirectUri
  *
  * On return:
- *   const result = sdk.parseReturnFragment(window.location.hash);
- *   await walletClient.writeContract(sdk.buildExecuteCall(result, ...));
+ *   const jwt = parseReturnFragment(window.location.hash);
+ *   await walletClient.writeContract(buildExecuteCall(intent, jwt)); // or relay it gaslessly
  */
 
 export * from "./address";

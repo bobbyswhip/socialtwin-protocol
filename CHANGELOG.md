@@ -2,6 +2,22 @@
 
 All notable changes to the protocol and reference implementation. Format inspired by [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.1.0] — 2026-06-02 — Audit response
+
+Addresses the external review by Sterling Crispin. Full mapping in [`AUDIT_RESPONSE.md`](AUDIT_RESPONSE.md). Contract changes require a fresh deploy (v1.1) to take effect onchain.
+
+### Security
+- **Rescue redesign (Finding 1, High):** abandoned-funds rescue is now two-phase and intent-based — `initiateRescue()` starts the 90-day clock from the rescuer's public signal (not deploy time), then `completeRescue()`. Neutralizes the pre-deploy timing attack. New error `RescueNotInitiated`; removed `rescueAbandoned`.
+- **Timelocked aud allowlist (Finding 2, High):** `addAud` replaced by `queueAud` → `AUD_TIMELOCK` (2 days) → `commitAud`; removals and the off-switch stay immediate. Added an ERC-7730 clear-signing descriptor for the owner-EOA wallet path (`clear-signing/`).
+- **SDK hash bug fixed (Finding 3, High/Med):** `buildSpendFlow` now binds the real `userId` (was hardcoded `0n`); SDK reframed from the attestor model to the deployed Twitch-JWT flow.
+- **Parser fuzz suite (Finding 6):** `test/FuzzVerifier.test.ts` — random/adversarial JWTs, wrong-key, claim mutation, alg-confusion, truncation, quote-injection.
+
+### Removed
+- `AttestorVerifier` contract + tests + `ATTESTOR_VERIFIER_ABI` + `docs/ATTESTOR_OPERATIONS.md` (Finding 4 — 1-of-N trust, never deployed).
+
+### Fixed
+- `deploy-local.ts` verifier constructor call (2→4 args); `deploy-twin-factory.ts` + `TwinFactory` NatSpec referenced a nonexistent `renounceRescuer` (rescuer is non-renounceable). Privileged roles documented in `ARCHITECTURE.md`; attestor-era docs banner-marked as superseded; key-rotation playbook clarified (Findings 5, 7).
+
 ## [0.3.0] — 2026-05-27
 
 ### Added

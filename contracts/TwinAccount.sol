@@ -18,13 +18,19 @@ interface ITwinFactoryRescuer {
 ///      connects an EOA via setOwnerEOA(), that EOA can spend forever with
 ///      no JWT — full custody independent of Twitch.
 ///
-/// Abandoned-funds rescue:
+/// Abandoned-funds rescue (two-phase, intent-based):
 ///   If a twin is NEVER activated (the streamer never connected — never
-///   executed, never set an EOA) and more than RESCUE_DELAY has elapsed
-///   since deployment, the factory's `rescuer` may delegate control to a
-///   designated EOA. This recovers community-deposited funds that would
-///   otherwise be stuck forever. The rescuer can NEVER touch a twin whose
-///   owner has shown up even once, and the role is renounceable.
+///   executed, never set an EOA), the factory's `rescuer` may recover the
+///   community-deposited funds in TWO steps:
+///     1. initiateRescue()          — signals intent, starts the countdown.
+///     2. completeRescue(eoa)        — after RESCUE_DELAY, delegates control.
+///   The countdown runs from the rescuer's SIGNAL, not from deployment, so
+///   the real owner always gets a full RESCUE_DELAY public window to show up
+///   regardless of when the twin was deployed or funded. (Deploy is
+///   permissionless, so a deploy-time clock could be started early by anyone;
+///   an intent-time clock cannot.) The rescuer can NEVER touch a twin whose
+///   owner has shown up even once — any JWT execute or setOwnerEOA activates
+///   the twin and permanently blocks rescue.
 contract TwinAccount is ReentrancyGuard {
     uint64 public immutable userId;
     IVerifier public immutable verifier;
@@ -34,8 +40,9 @@ contract TwinAccount is ReentrancyGuard {
     uint256 public constant MAX_PROOF_AGE = 5 minutes;
     /// @notice Future-skew cap on the JWT's iat. 60 seconds.
     uint256 public constant MAX_CLOCK_SKEW = 60 seconds;
-    /// @notice A twin must sit untouched (never activated) this long before
-    ///         abandoned-rescue is allowed.
+    /// @notice After the rescuer signals intent via initiateRescue(), a
+    ///         never-activated twin must sit untouched this long before
+    ///         completeRescue() is allowed. Runs from intent, not deploy.
     uint256 public constant RESCUE_DELAY = 90 days; // 3 months
 
     /// @notice JWT-path replay nonce.
@@ -46,13 +53,18 @@ contract TwinAccount is ReentrancyGuard {
     /// @notice True once the real owner has demonstrated control (any JWT
     ///         execute, or setOwnerEOA). Permanently disables abandoned-rescue.
     bool public activated;
-    /// @notice block.timestamp at deployment — starts the rescue clock.
+    /// @notice block.timestamp at deployment. Informational only — the rescue
+    ///         clock is NOT based on this (see rescueInitiatedAt).
     uint64 public immutable deployedAt;
+    /// @notice block.timestamp when the rescuer called initiateRescue(); 0 until
+    ///         then. The RESCUE_DELAY countdown runs from this, not deployedAt.
+    uint64 public rescueInitiatedAt;
 
     event Executed(uint256 indexed nonce, address indexed target, uint256 value, bytes32 actionHash);
     event BatchExecuted(uint256 indexed nonce, uint256 callCount, bytes32 actionHash);
     event OwnerEOASet(address indexed owner, bool viaRescue);
     event OwnerExecuted(address indexed owner, address indexed target, uint256 value);
+    event RescueInitiated(address indexed rescuer, uint256 completeAllowedAt);
     event Rescued(address indexed rescuer, address indexed designatedEOA);
 
     error InvalidProof();
@@ -66,6 +78,7 @@ contract TwinAccount is ReentrancyGuard {
     error ZeroAddress();
     error NotRescuer();
     error AlreadyActivated();
+    error RescueNotInitiated();
     error RescueTooEarly(uint256 allowedAt);
 
     constructor(uint64 _userId, IVerifier _verifier) {
@@ -212,16 +225,32 @@ contract TwinAccount is ReentrancyGuard {
 
     // ════════════════════ ABANDONED-FUNDS RESCUE ════════════════════
 
-    /// @notice Delegate control of a NEVER-ACTIVATED twin to a designated EOA
-    ///         after RESCUE_DELAY. Recovers community funds sent to a streamer
-    ///         who never connected. Callable only by the factory's current
-    ///         rescuer. Can never touch an activated twin.
-    function rescueAbandoned(address designatedEOA) external nonReentrant {
+    /// @notice Step 1 — the factory's rescuer signals intent to recover a
+    ///         NEVER-ACTIVATED twin, starting a public RESCUE_DELAY countdown.
+    ///         The real owner can cancel at any time before completion simply
+    ///         by showing up (any JWT execute / setOwnerEOA activates the twin
+    ///         and permanently blocks rescue). Re-callable to restart the clock.
+    function initiateRescue() external {
+        address r = ITwinFactoryRescuer(factory).rescuer();
+        if (r == address(0) || msg.sender != r) revert NotRescuer();
+        if (activated || ownerEOA != address(0)) revert AlreadyActivated();
+        rescueInitiatedAt = uint64(block.timestamp);
+        emit RescueInitiated(r, uint256(rescueInitiatedAt) + RESCUE_DELAY);
+    }
+
+    /// @notice Step 2 — after RESCUE_DELAY has elapsed since initiateRescue()
+    ///         and the twin is STILL never-activated, delegate control to a
+    ///         designated EOA. The delay runs from the rescuer's signal, NOT
+    ///         from deploy, so the owner always gets a full RESCUE_DELAY window
+    ///         regardless of when the twin was deployed or funded. Callable only
+    ///         by the factory's current rescuer; can never touch an activated twin.
+    function completeRescue(address designatedEOA) external nonReentrant {
         if (designatedEOA == address(0)) revert ZeroAddress();
         address r = ITwinFactoryRescuer(factory).rescuer();
         if (r == address(0) || msg.sender != r) revert NotRescuer();
         if (activated || ownerEOA != address(0)) revert AlreadyActivated();
-        uint256 allowedAt = uint256(deployedAt) + RESCUE_DELAY;
+        if (rescueInitiatedAt == 0) revert RescueNotInitiated();
+        uint256 allowedAt = uint256(rescueInitiatedAt) + RESCUE_DELAY;
         if (block.timestamp < allowedAt) revert RescueTooEarly(allowedAt);
 
         activated = true;
@@ -282,13 +311,17 @@ contract TwinAccount is ReentrancyGuard {
 
     // ════════════════════════ VIEWS ════════════════════════
 
+    /// @notice Timestamp at which completeRescue() becomes allowed, or 0 if the
+    ///         rescuer has not yet called initiateRescue().
     function rescueAllowedAt() external view returns (uint256) {
-        return uint256(deployedAt) + RESCUE_DELAY;
+        if (rescueInitiatedAt == 0) return 0;
+        return uint256(rescueInitiatedAt) + RESCUE_DELAY;
     }
 
     function isRescuable() external view returns (bool) {
         return !activated
             && ownerEOA == address(0)
-            && block.timestamp >= uint256(deployedAt) + RESCUE_DELAY;
+            && rescueInitiatedAt != 0
+            && block.timestamp >= uint256(rescueInitiatedAt) + RESCUE_DELAY;
     }
 }

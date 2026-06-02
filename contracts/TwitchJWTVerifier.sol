@@ -55,8 +55,20 @@ contract TwitchJWTVerifier is IVerifier {
     ///         disable PERMANENTLY (and drop the admin) via lockOpenForever().
     bool public audCheckEnabled = true;
 
+    /// @notice Delay between queueing a new aud (queueAud) and committing it
+    ///         (commitAud). A compromised audAdmin cannot INSTANTLY allowlist a
+    ///         phishing app — the pending add is publicly visible for this long
+    ///         first, giving users and integrators time to react. Only ADDING
+    ///         (the dangerous direction) is delayed; removeAud and the off-switch
+    ///         stay immediate so safety actions are never blocked.
+    uint256 public constant AUD_TIMELOCK = 2 days;
+    /// @notice keccak256(aud) => earliest timestamp commitAud() may run. 0 = not queued.
+    mapping(bytes32 => uint256) public pendingAudEta;
+
     event AudAdded(string aud);
     event AudRemoved(string aud);
+    event AudQueued(string aud, uint256 eta);
+    event AudQueueCancelled(string aud);
     event AudAdminTransferred(address indexed from, address indexed to);
     event AudCheckSet(bool enabled);
     event LockedOpenForever();
@@ -99,8 +111,33 @@ contract TwitchJWTVerifier is IVerifier {
         _;
     }
 
-    function addAud(string calldata aud) external onlyAudAdmin {
+    /// @notice Step 1 — queue a new aud for allowlisting. It becomes committable
+    ///         only after AUD_TIMELOCK, and the pending add is public meanwhile.
+    function queueAud(string calldata aud) external onlyAudAdmin {
+        require(bytes(aud).length > 0, "empty aud");
+        bytes32 h = keccak256(bytes(aud));
+        require(!allowedAud[h], "already allowlisted");
+        uint256 eta = block.timestamp + AUD_TIMELOCK;
+        pendingAudEta[h] = eta;
+        emit AudQueued(aud, eta);
+    }
+
+    /// @notice Step 2 — commit a queued aud once AUD_TIMELOCK has elapsed.
+    function commitAud(string calldata aud) external onlyAudAdmin {
+        bytes32 h = keccak256(bytes(aud));
+        uint256 eta = pendingAudEta[h];
+        require(eta != 0, "not queued");
+        require(block.timestamp >= eta, "timelock not elapsed");
+        delete pendingAudEta[h];
         _addAud(aud);
+    }
+
+    /// @notice Cancel a queued (not-yet-committed) aud.
+    function cancelQueuedAud(string calldata aud) external onlyAudAdmin {
+        bytes32 h = keccak256(bytes(aud));
+        require(pendingAudEta[h] != 0, "not queued");
+        delete pendingAudEta[h];
+        emit AudQueueCancelled(aud);
     }
 
     function _addAud(string memory aud) internal {

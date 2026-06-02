@@ -1,5 +1,5 @@
-import { encodeAbiParameters, keccak256, type Address, type Hex } from "viem";
-import type { AttestationResult, SpendIntent } from "./types";
+import { encodeAbiParameters, keccak256, toHex, type Address, type Hex } from "viem";
+import type { JwtResult, SpendIntent } from "./types";
 import { TWIN_ACCOUNT_ABI } from "./abis";
 
 const EXECUTE_DOMAIN = "TwinAccount:v2:execute";
@@ -49,8 +49,9 @@ export function computeActionHash(opts: {
 
 /**
  * Build the wagmi/viem-compatible writeContract args for `twin.execute(...)`.
+ * The raw id_token is passed as the `jwt` bytes argument (UTF-8 → hex).
  */
-export function buildExecuteCall(intent: SpendIntent, attestation: AttestationResult) {
+export function buildExecuteCall(intent: SpendIntent, jwt: JwtResult) {
   return {
     address: intent.twin,
     abi: TWIN_ACCOUNT_ABI,
@@ -61,8 +62,8 @@ export function buildExecuteCall(intent: SpendIntent, attestation: AttestationRe
       intent.data,
       intent.nonce,
       intent.deadline,
-      attestation.epoch,
-      attestation.attestation,
+      jwt.epoch, // oauthExchangeEpoch = the JWT's iat
+      toHex(jwt.idToken), // raw JWT bytes (header.payload.signature)
     ] as const,
   };
 }

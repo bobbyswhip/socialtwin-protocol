@@ -19,9 +19,10 @@ contract TwinFactory {
 
     IVerifier public immutable verifier;
 
-    /// @notice Address allowed to call rescueAbandoned() on never-activated
-    ///         twins. Renounceable (set to address(0)) to make the entire
-    ///         system trustless.
+    /// @notice Address allowed to initiate/complete the two-phase rescue on
+    ///         never-activated twins (see TwinAccount.initiateRescue /
+    ///         completeRescue). NOT renounceable — abandoned-funds recovery is a
+    ///         retained capability — but transferable to a DAO/multisig.
     address public rescuer;
 
     event TwinDeployed(uint64 indexed userId, address indexed twin);

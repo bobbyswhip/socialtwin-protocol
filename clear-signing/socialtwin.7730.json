@@ -1,0 +1,46 @@
+{
+  "$schema": "https://eips.ethereum.org/assets/eip-7730/erc7730-v1.schema.json",
+  "context": {
+    "$id": "SocialTwin TwinAccount",
+    "contract": {
+      "abi": "https://raw.githubusercontent.com/bobbyswhip/socialtwin-protocol/main/sdk/src/abis.ts",
+      "deployments": [
+        { "chainId": 8453, "address": "0x0000000000000000000000000000000000000000" }
+      ]
+    }
+  },
+  "metadata": {
+    "owner": "SocialTwin",
+    "info": {
+      "legalName": "SocialTwin Protocol",
+      "url": "https://github.com/bobbyswhip/socialtwin-protocol"
+    },
+    "note": "Every Twitch user's twin shares identical bytecode, so this descriptor applies to every twin address. It clear-signs the SELF-CUSTODY (owner-EOA) path only — execute/setOwnerEOA via Twitch JWT are authorized at the Twitch consent screen, which wallets cannot render (see AUDIT_RESPONSE.md, Finding 2). The `deployments` address is a placeholder; wallets should match by identical bytecode/ABI across twin instances, and it must be updated per the v1.1 deploy."
+  },
+  "display": {
+    "formats": {
+      "executeAsOwner(address target, uint256 value, bytes data)": {
+        "intent": "Spend from your SocialTwin",
+        "fields": [
+          { "path": "target", "label": "Send to", "format": "addressName" },
+          { "path": "value", "label": "Amount", "format": "amount" }
+        ],
+        "required": ["target", "value"]
+      },
+      "setOwnerEOA(address newOwner, uint256 _nonce, uint256 deadline, uint256 oauthExchangeEpoch, bytes jwt)": {
+        "intent": "Link a self-custody wallet to your SocialTwin",
+        "fields": [
+          { "path": "newOwner", "label": "New owner wallet", "format": "addressName" }
+        ],
+        "required": ["newOwner"]
+      },
+      "rotateOwnerEOA(address newOwner)": {
+        "intent": "Move your SocialTwin to a new wallet",
+        "fields": [
+          { "path": "newOwner", "label": "New owner wallet", "format": "addressName" }
+        ],
+        "required": ["newOwner"]
+      }
+    }
+  }
+}
