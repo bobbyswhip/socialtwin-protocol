@@ -130,6 +130,35 @@ describe("TwinAccount v2 — escape EOA + rescue", () => {
         twin.connect(aliceEOA).executeAsOwner(recipient.address, 0n, "0x")
       ).to.be.revertedWithCustomError(twin, "NotOwner");
     });
+
+    it("connecting an EOA disables the JWT/Twitch path FOREVER (one-way self-custody)", async () => {
+      const twin = await twinFor(ALICE);
+      await deployer.sendTransaction({ to: await twin.getAddress(), value: ethers.parseEther("1") });
+
+      // user takes self-custody
+      let n = await twin.nonce(); let t = await now(); let dl = t + 600;
+      let ah = await twin.computeSetOwnerHash(aliceEOA.address, n, dl);
+      await twin.setOwnerEOA(aliceEOA.address, n, dl, t, ethers.toUtf8Bytes(mint(ALICE, t, ah)));
+      expect(await twin.selfCustody()).to.equal(true);
+
+      // a perfectly valid Twitch JWT can no longer SPEND
+      n = await twin.nonce(); t = await now(); dl = t + 600;
+      ah = await twin.computeActionHash(mallory.address, ethers.parseEther("1"), "0x", n, dl);
+      await expect(
+        twin.execute(mallory.address, ethers.parseEther("1"), "0x", n, dl, t, ethers.toUtf8Bytes(mint(ALICE, t, ah)))
+      ).to.be.revertedWithCustomError(twin, "SelfCustodyEnabled");
+
+      // ...nor RE-POINT ownership (no Twitch-compromise hijack)
+      ah = await twin.computeSetOwnerHash(mallory.address, n, dl);
+      await expect(
+        twin.setOwnerEOA(mallory.address, n, dl, t, ethers.toUtf8Bytes(mint(ALICE, t, ah)))
+      ).to.be.revertedWithCustomError(twin, "SelfCustodyEnabled");
+
+      // the owner EOA still spends fine (and can rotate without Twitch)
+      const before = await ethers.provider.getBalance(recipient.address);
+      await twin.connect(aliceEOA).executeAsOwner(recipient.address, ethers.parseEther("0.4"), "0x");
+      expect(await ethers.provider.getBalance(recipient.address) - before).to.equal(ethers.parseEther("0.4"));
+    });
   });
 
   // ─── Abandoned-funds rescue (intent-based: initiate → wait → complete) ──
@@ -219,6 +248,9 @@ describe("TwinAccount v2 — escape EOA + rescue", () => {
       await ethers.provider.send("evm_increaseTime", [RESCUE_DELAY + 1]);
       await ethers.provider.send("evm_mine", []);
       await twin.connect(rescuer).completeRescue(communityEOA.address);
+      // A rescue does NOT trigger self-custody, so the JWT path stays open for
+      // the real streamer to reclaim.
+      expect(await twin.selfCustody()).to.equal(false);
 
       // Alice finally appears with a valid JWT and re-points the owner EOA to herself.
       const n = await twin.nonce();

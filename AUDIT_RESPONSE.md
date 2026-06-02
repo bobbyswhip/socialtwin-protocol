@@ -5,9 +5,11 @@ External review by **Sterling Crispin** (commit `1aeed2e`, branch `main`) — or
 
 The review found **no "anyone can forge and drain" vulnerability** and confirmed all 103 tests passed and the SDK initcode matched the compiled artifact. It raised seven design/implementation issues. This document records each one and exactly what changed in response.
 
-> **Deployment status:** the v1.1 stack is **deployed and Basescan-verified** on Base mainnet:
-> `TwinFactory` [`0x4318db7BeDF879A43B77fa608248bBF78423bBDa`](https://basescan.org/address/0x4318db7BeDF879A43B77fa608248bBF78423bBDa#code) · `TwitchJWTVerifier` [`0xEaD1e986407d899fD00A8733F48Fd87DeeB33A4e`](https://basescan.org/address/0xEaD1e986407d899fD00A8733F48Fd87DeeB33A4e#code).
-> Verified source ⇒ the deployed bytecode equals the code reviewed here and exercised by the test suite. The pre-audit v1.0 stack is deprecated (see README). A live adversarial matrix was run post-deploy (see "Post-deploy red-team" below).
+> **Deployment status:** the current **v1.2** stack is deployed and Basescan-verified on Base mainnet:
+> `TwinFactory` [`0xe717Dd981Ea9FD5Fe7E61cFA11e07EDc48Ba1088`](https://basescan.org/address/0xe717Dd981Ea9FD5Fe7E61cFA11e07EDc48Ba1088#code) · `TwitchJWTVerifier` [`0xEaD1e986407d899fD00A8733F48Fd87DeeB33A4e`](https://basescan.org/address/0xEaD1e986407d899fD00A8733F48Fd87DeeB33A4e#code) (verifier unchanged since v1.1).
+> Verified source ⇒ the deployed bytecode equals the code reviewed here and exercised by the test suite. v1.0 (`0x942C…`) and the v1.1 factory (`0x4318…`) are deprecated (see README). A live adversarial matrix was run post-deploy (see "Post-deploy red-team" below).
+>
+> **v1.2 follow-up hardening (beyond the audit):** connecting an owner EOA via `setOwnerEOA` now sets a one-way `selfCustody` flag that **permanently disables the JWT/Twitch path** (`execute`/`executeBatch`/`setOwnerEOA`) for that twin — only the owner EOA can act thereafter. This closes the gap where a compromised/phished Twitch login could still drain or *re-point* a twin the user thought they had secured (directly strengthening Finding 2). Abandoned-rescue is unaffected: `completeRescue` does not set `selfCustody`, so a genuinely-abandoned twin can still be reclaimed by the real streamer via JWT. Trade-off: no Twitch-based recovery once self-custodied — use a smart-contract wallet as the owner if you want key recovery.
 
 | # | Finding | Severity | Status |
 |---|---------|----------|--------|

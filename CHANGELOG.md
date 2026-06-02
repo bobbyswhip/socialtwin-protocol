@@ -2,6 +2,16 @@
 
 All notable changes to the protocol and reference implementation. Format inspired by [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.2.0] — 2026-06-02 — One-way self-custody
+
+Follow-up security hardening (strengthens audit Finding 2). **Deployed + Basescan-verified:** `TwinFactory` `0xe717Dd981Ea9FD5Fe7E61cFA11e07EDc48Ba1088` (verifier `0xEaD1…` reused from v1.1).
+
+### Security
+- `TwinAccount`: connecting an owner EOA via `setOwnerEOA` sets a one-way `selfCustody` flag that **permanently disables the JWT/Twitch path** (`execute`, `executeBatch`, `setOwnerEOA`) — only `executeAsOwner`/`rotateOwnerEOA` work afterward. A compromised/phished Twitch login can no longer drain or re-point a self-custodied twin. New error `SelfCustodyEnabled`; new view `selfCustody`.
+- `completeRescue` does **not** set `selfCustody`, so abandoned-then-rescued twins remain JWT-reclaimable by the real streamer.
+- Tests: +2 (TwinV2Features "JWT disabled after self-custody", RedTeam "E3 self-custodied twin rejects JWT drain + re-point"); 101 passing.
+- v1.1 factory `0x4318…` deprecated (the verifier is unchanged).
+
 ## [1.1.0] — 2026-06-02 — Audit response
 
 Addresses the external review by Sterling Crispin. Full mapping in [`AUDIT_RESPONSE.md`](AUDIT_RESPONSE.md).

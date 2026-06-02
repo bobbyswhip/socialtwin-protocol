@@ -308,6 +308,27 @@ describe("RED TEAM", () => {
     await expect(twin.connect(attacker).rotateOwnerEOA(attacker.address)).to.be.revertedWithCustomError(twin, "NotOwner");
   });
 
+  it("E3 self-custodied twin: a fully valid Twitch JWT can neither drain nor re-point it", async () => {
+    const twin = await twinFor(ALICE); await fund(twin);
+    // user takes self-custody
+    let n = await twin.nonce(); let t = await now(); let dl = BigInt(t + 600);
+    let ah = await twin.computeSetOwnerHash(aliceEOA.address, n, dl);
+    await twin.connect(relayer).setOwnerEOA(aliceEOA.address, n, dl, t, ethers.toUtf8Bytes(sign(twitchKey, { iss: ISSUER, aud: "a", sub: ALICE.toString(), iat: t, exp: t + 3600, nonce: ah })));
+    expect(await twin.selfCustody()).to.equal(true);
+
+    // a perfectly valid JWT (right sub, right aud, fresh) cannot SPEND
+    n = await twin.nonce(); t = await now(); dl = BigInt(t + 600);
+    const bal = await ethers.provider.getBalance(await twin.getAddress());
+    ah = await twin.computeActionHash(attacker.address, bal, "0x", n, dl);
+    await expect(twin.connect(attacker).execute(attacker.address, bal, "0x", n, dl, t, ethers.toUtf8Bytes(sign(twitchKey, { iss: ISSUER, aud: "a", sub: ALICE.toString(), iat: t, exp: t + 3600, nonce: ah }))))
+      .to.be.revertedWithCustomError(twin, "SelfCustodyEnabled");
+
+    // ...nor HIJACK ownership by re-pointing the owner EOA
+    ah = await twin.computeSetOwnerHash(attacker.address, n, dl);
+    await expect(twin.connect(attacker).setOwnerEOA(attacker.address, n, dl, t, ethers.toUtf8Bytes(sign(twitchKey, { iss: ISSUER, aud: "a", sub: ALICE.toString(), iat: t, exp: t + 3600, nonce: ah }))))
+      .to.be.revertedWithCustomError(twin, "SelfCustodyEnabled");
+  });
+
   // ── F. Rescue (intent-based: initiateRescue → wait → completeRescue) ──
   it("F1 non-rescuer cannot initiate or complete a rescue", async () => {
     const twin = await twinFor(ALICE); await fund(twin);

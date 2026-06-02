@@ -12,11 +12,19 @@ interface ITwinFactoryRescuer {
 /// @notice Per-Twitch-user smart account at a deterministic Base address.
 ///
 /// Two ways to authorize a spend:
-///   1. Fresh Twitch JWT (the default; works while Twitch maintains OIDC).
-///   2. A connected "escape" EOA (self-custody; survives Twitch shutting us
-///      down or rotating their signing key). Once the real Twitch owner
-///      connects an EOA via setOwnerEOA(), that EOA can spend forever with
-///      no JWT — full custody independent of Twitch.
+///   1. Fresh Twitch JWT (the bootstrap; works while Twitch maintains OIDC and
+///      ONLY until the user takes self-custody — see below).
+///   2. A connected "escape" EOA (true self-custody). When the user calls
+///      setOwnerEOA(), the twin flips to self-custody PERMANENTLY: the JWT /
+///      Twitch path (execute, executeBatch, setOwnerEOA) is disabled forever,
+///      and only the owner EOA can spend (executeAsOwner) or hand off
+///      (rotateOwnerEOA). This is a one-way handoff — connecting a wallet
+///      severs Twitch's power entirely, so a compromised/phished Twitch login
+///      can no longer drain or re-point the twin. Trade-off: there is no
+///      Twitch-based recovery once self-custodied (use a smart-contract wallet
+///      as the owner if you want key recovery). The JWT path is NOT disabled by
+///      an abandoned-funds rescue — completeRescue() leaves it open so the real
+///      streamer can still reclaim a rescued twin.
 ///
 /// Abandoned-funds rescue (two-phase, intent-based):
 ///   If a twin is NEVER activated (the streamer never connected — never
@@ -53,6 +61,11 @@ contract TwinAccount is ReentrancyGuard {
     /// @notice True once the real owner has demonstrated control (any JWT
     ///         execute, or setOwnerEOA). Permanently disables abandoned-rescue.
     bool public activated;
+    /// @notice True once the user has taken self-custody via setOwnerEOA. While
+    ///         true, the JWT/Twitch path is permanently disabled (one-way) — only
+    ///         the owner EOA can act. NOT set by completeRescue(), so a rescued
+    ///         twin can still be reclaimed by the real streamer via JWT.
+    bool public selfCustody;
     /// @notice block.timestamp at deployment. Informational only — the rescue
     ///         clock is NOT based on this (see rescueInitiatedAt).
     uint64 public immutable deployedAt;
@@ -76,6 +89,7 @@ contract TwinAccount is ReentrancyGuard {
     error EmptyBatch();
     error NotOwner();
     error ZeroAddress();
+    error SelfCustodyEnabled();
     error NotRescuer();
     error AlreadyActivated();
     error RescueNotInitiated();
@@ -142,9 +156,13 @@ contract TwinAccount is ReentrancyGuard {
         return rets;
     }
 
-    /// @notice Connect (or rotate) the self-custody escape EOA. JWT-gated, so
-    ///         only the real Twitch owner can call it. After this, `ownerEOA`
-    ///         can spend with no JWT — surviving any future Twitch shutdown.
+    /// @notice Take self-custody by connecting an owner EOA. JWT-gated, so only
+    ///         the real Twitch owner can call it — and only ONCE: it flips
+    ///         `selfCustody` on, which PERMANENTLY disables the JWT/Twitch path
+    ///         (including this function). Thereafter only `executeAsOwner` /
+    ///         `rotateOwnerEOA` (owner-signed) work. A compromised/phished Twitch
+    ///         login can no longer touch the twin. To change wallets later, use
+    ///         rotateOwnerEOA(), not Twitch.
     function setOwnerEOA(
         address newOwner,
         uint256 _nonce,
@@ -160,6 +178,7 @@ contract TwinAccount is ReentrancyGuard {
         unchecked { nonce = _nonce + 1; }
         activated = true;
         ownerEOA = newOwner;
+        selfCustody = true; // one-way: the JWT/Twitch path is now permanently disabled
         emit OwnerEOASet(newOwner, false);
     }
 
@@ -170,6 +189,9 @@ contract TwinAccount is ReentrancyGuard {
         uint256 oauthExchangeEpoch,
         bytes calldata jwt
     ) internal view {
+        // Once the user has taken self-custody, the JWT/Twitch path is dead.
+        // Only the owner EOA can act (executeAsOwner / rotateOwnerEOA).
+        if (selfCustody) revert SelfCustodyEnabled();
         if (_nonce != nonce) revert WrongNonce(nonce, _nonce);
         if (block.timestamp > deadline) revert DeadlinePassed();
         if (block.timestamp > oauthExchangeEpoch + MAX_PROOF_AGE) revert ProofTooOld();
