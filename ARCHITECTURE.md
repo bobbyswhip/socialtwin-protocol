@@ -48,7 +48,7 @@ Neither role can move an active user's funds.
 - **`guardian`** (on `TwitchJWTVerifier`) — a **distinct** key that can `cancelKey` (veto) a pending rotation. `keyAdmin` cannot reassign the guardian, so a single compromised key can't push a malicious modulus.
 - **`rescuer`** (on `TwinFactory`) — runs the two-phase rescue on never-activated twins only. Non-renounceable but transferable to a DAO/multisig.
 
-`audAdmin`/`keyAdmin`/`rescuer` are the treasury (`0xD1EC…`); `guardian` is a distinct key (`0xa825…`). Live addresses in [`README.md`](./README.md).
+`audAdmin`/`guardian`/`rescuer` are the treasury (`0xD1EC…`); `keyAdmin` is a distinct operator key (`0xa825…`) — so the cold treasury holds the rotation veto. Live addresses in [`README.md`](./README.md).
 
 ## Off-chain (convenience only — not in the trust path)
 

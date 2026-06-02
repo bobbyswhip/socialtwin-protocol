@@ -4,7 +4,7 @@ All notable changes to the protocol and reference implementation. Format inspire
 
 ## [1.3.0] — 2026-06-02 — Timelocked signing-key rotation
 
-Guarantees a Twitch signing-key rotation can never permanently lock funds. **Deployed + Basescan-verified:** `TwinFactory` `0x51205c4615A45870F8aF13b408CC579b09AC90a6`, `TwitchJWTVerifier` `0xF7E1BFE0a67F484B112D6581dFF7481ad13D76e0`.
+Guarantees a Twitch signing-key rotation can never permanently lock funds. **Deployed + Basescan-verified:** `TwinFactory` `0x260C074c3afDc46A209D4619B5FAdB2964dF9a28`, `TwitchJWTVerifier` `0xBDfC552469f11843802BCD7ec9a8372c8020fee8`.
 
 ### Added
 - `TwitchJWTVerifier`: `queueKey` → `KEY_TIMELOCK` (7 days) → `commitKey` rotates/adds a Twitch RSA key **in place** (same verifier ⇒ same twin addresses, no migration, no permanent lock). A **distinct `guardian`** role can `cancelKey` to veto a pending key; `keyAdmin` cannot reassign the guardian. Pending modulus is public via `pendingKeyFor` for JWKS comparison. New roles `keyAdmin`/`guardian` (constructor now takes both); errors `NotKeyAdmin`/`NotGuardianNorKeyAdmin`/`KeyNotQueued`/`KeyTimelockNotElapsed`/`BadModulusLength`; `test/KeyRotation.test.ts` (9 tests; 84 total).

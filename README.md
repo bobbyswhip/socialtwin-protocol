@@ -27,14 +27,14 @@ The post-audit stack: intent-based rescue + timelocked aud allowlist (v1.1), one
 
 | Contract | Address | Role |
 |---|---|---|
-| `TwinFactory` (v1.3) | [`0x51205c4615A45870F8aF13b408CC579b09AC90a6`](https://basescan.org/address/0x51205c4615A45870F8aF13b408CC579b09AC90a6#code) | Derives & deploys twins (`CREATE2`) |
-| `TwitchJWTVerifier` (v1.3) | [`0xF7E1BFE0a67F484B112D6581dFF7481ad13D76e0`](https://basescan.org/address/0xF7E1BFE0a67F484B112D6581dFF7481ad13D76e0#code) | Onchain Twitch OIDC JWT verification; 2-day `aud` timelock + 7-day signing-key rotation |
-| Treasury (multisig) | [`0xD1EC8245c8850A151843ce8a3AFdca3b19747706`](https://basescan.org/address/0xD1EC8245c8850A151843ce8a3AFdca3b19747706) | `audAdmin` + `keyAdmin` + abandoned-funds `rescuer` |
-| Guardian (veto key) | `0xa825094B04D5a3710bd41C4fbC902F75cF333333` | can cancel a pending signing-key rotation (distinct from `keyAdmin`) |
+| `TwinFactory` (v1.3) | [`0x260C074c3afDc46A209D4619B5FAdB2964dF9a28`](https://basescan.org/address/0x260C074c3afDc46A209D4619B5FAdB2964dF9a28#code) | Derives & deploys twins (`CREATE2`) |
+| `TwitchJWTVerifier` (v1.3) | [`0xBDfC552469f11843802BCD7ec9a8372c8020fee8`](https://basescan.org/address/0xBDfC552469f11843802BCD7ec9a8372c8020fee8#code) | Onchain Twitch OIDC JWT verification; 2-day `aud` timelock + 7-day signing-key rotation |
+| Treasury (multisig) | [`0xD1EC8245c8850A151843ce8a3AFdca3b19747706`](https://basescan.org/address/0xD1EC8245c8850A151843ce8a3AFdca3b19747706) | `audAdmin` + `guardian` (signing-key rotation veto) + abandoned-funds `rescuer` |
+| `keyAdmin` (operator) | `0xa825094B04D5a3710bd41C4fbC902F75cF333333` | queues/commits signing-key rotations; a hot key distinct from the cold treasury `guardian`, so the cold key holds the veto |
 
-Source-verified. Salt domain: `"SocialTwin:twitch:v2"`. Twitch issuer `https://id.twitch.tv/oauth2`, signing key `kid="1"`. Sample twin (`yougotcoined`): [`0xFcaF3AE24db90017ffa70D95aAA5ba69b76DD75C`](https://basescan.org/address/0xFcaF3AE24db90017ffa70D95aAA5ba69b76DD75C).
+Source-verified. Salt domain: `"SocialTwin:twitch:v2"`. Twitch issuer `https://id.twitch.tv/oauth2`, signing key `kid="1"`. Sample twin (`yougotcoined`): [`0xcBeaF766D4a7DD61558d4E80ee58B8B8379d4CEf`](https://basescan.org/address/0xcBeaF766D4a7DD61558d4E80ee58B8B8379d4CEf).
 
-> **Deprecated (do not use):** v1.0 factory `0x942C…`/verifier `0xF1Ff…`, v1.1 factory `0x4318…`, v1.2 factory `0xe717…`/verifier `0xEaD1…`. Funds in old twins remain controlled by their respective contracts; new integrations must use the v1.3 addresses above.
+> **Deprecated (do not use):** v1.0 factory `0x942C…`/verifier `0xF1Ff…`, v1.1 factory `0x4318…`, v1.2 factory `0xe717…`/verifier `0xEaD1…`, and the initial v1.3 deploy factory `0x51205c…`/verifier `0xF7E1BF…` (superseded — guardian/keyAdmin roles corrected). Funds in old twins remain controlled by their respective contracts; new integrations must use the v1.3 addresses above.
 
 ---
 
@@ -102,8 +102,8 @@ npm test            # full suite incl. red-team vectors
 import { predictTwinAddress } from "@socialtwin/sdk";
 
 const twin = predictTwinAddress({
-  factory:  "0x51205c4615A45870F8aF13b408CC579b09AC90a6", // v1.3
-  verifier: "0xF7E1BFE0a67F484B112D6581dFF7481ad13D76e0", // v1.3
+  factory:  "0x260C074c3afDc46A209D4619B5FAdB2964dF9a28", // v1.3
+  verifier: "0xBDfC552469f11843802BCD7ec9a8372c8020fee8", // v1.3
   userId:   1507305235n,            // Twitch numeric user_id
 });
 // → send ETH / ERC-20 to `twin`. Done. No setup on the recipient's side.
@@ -115,7 +115,7 @@ import { buildSpendFlow, parseReturnFragment, buildExecuteCall } from "@socialtw
 
 const cfg = {
   chainId: 8453,
-  factoryAddress: "0x51205c4615A45870F8aF13b408CC579b09AC90a6", // v1.3
+  factoryAddress: "0x260C074c3afDc46A209D4619B5FAdB2964dF9a28", // v1.3
   twitchClientId: "<your Twitch app client_id>", // must be allowlisted as an `aud`
   redirectUri: "https://yourapp.example/claim",  // must match the Twitch app exactly
 };

@@ -36,7 +36,7 @@ Spending a twin trusts exactly:
 | `guardian` | `TwitchJWTVerifier` | `cancelKey` — veto a pending signing-key rotation | anything else (cancel-only) |
 | `rescuer` | `TwinFactory` | `initiateRescue` / `completeRescue` on **never-activated** twins after a 90-day window | touch any activated/owned twin; rescue without the public delay |
 
-`audAdmin`/`keyAdmin`/`rescuer` are the treasury multisig; **`guardian` is a DISTINCT key** (so a single compromise can't push a malicious signing key — `keyAdmin` queues, `guardian` can veto, and `keyAdmin` cannot reassign the guardian). `lockOpenForever()` permanently drops `audAdmin`. `rescuer` is non-renounceable but transferable.
+`audAdmin`/`guardian`/`rescuer` are the treasury multisig (`0xD1EC…`); **`keyAdmin` is a DISTINCT operator key** (`0xa825…`). So the cold treasury holds the rotation veto while a hot key does routine queueing — a single compromise can't push a malicious signing key (`keyAdmin` queues, the treasury `guardian` can veto, and `keyAdmin` cannot reassign the guardian). `lockOpenForever()` permanently drops `audAdmin`. `rescuer` is non-renounceable but transferable.
 
 The off-chain **relayer** key is spend-risk only (it pays gas); it is powerless beyond that — it can only broadcast what a JWT authorized, and must verify `twin == factory.predictAddress(jwt.sub)` before paying.
 
