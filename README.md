@@ -149,11 +149,11 @@ See [`docs/INTEGRATION.md`](docs/INTEGRATION.md) and [`docs/FRONTEND_SDK.md`](do
 | No admin over user funds | treasury can curate the app allowlist and recover *never-claimed* twins via a two-phase rescue (signal intent → 90-day public window → complete) — nothing more, and never a twin whose owner showed up |
 
 **Honest residual risks:**
-- The onchain JWT verifier (RSA + base64url + JSON parsing in Solidity) is intricate and **not yet externally audited**. Internally red-teamed with 22+ adversarial vectors (forged signatures, `alg=none`/confusion, JSON injection, cross-user, replay, audience phishing); findings and fixes in [`RED_TEAM_FINDINGS.md`](RED_TEAM_FINDINGS.md) and [`SECURITY_REVIEW.md`](SECURITY_REVIEW.md).
-- OAuth phishing narrows to "the user authorizes a malicious *allowlisted* app." Same ceiling as any "Sign in with X"; the wallet-owned escape path defends everyday spending. `force_verify=true` forces the consent screen each time.
+- The onchain JWT verifier (RSA + base64url + JSON parsing in Solidity) is intricate and **not yet externally audited**. Internally red-teamed with 22+ adversarial vectors (forged signatures, `alg=none`/confusion, JSON injection, cross-user, replay, audience phishing) plus a fuzz suite; findings and fixes in [`RED_TEAM_FINDINGS.md`](RED_TEAM_FINDINGS.md) and [`AUDIT_RESPONSE.md`](AUDIT_RESPONSE.md).
+- OAuth phishing narrows to "the user authorizes a malicious *allowlisted* app." Same ceiling as any "Sign in with X"; **once a user self-custodies (links a wallet), the JWT path is permanently disabled** so this risk disappears for that twin. `force_verify=true` forces the consent screen each time.
 - If Twitch rotates its signing key, JWT-path access pauses until a new verifier/factory is deployed and users migrate. A key-rotation watchdog provides advance warning; wallets linked via `setOwnerEOA` are unaffected (they don't use JWTs).
 
-Full write-ups: [`SECURITY.md`](SECURITY.md) · [`PERMANENCE.md`](PERMANENCE.md) · [`docs/TRUST_MODEL.md`](docs/TRUST_MODEL.md).
+Full write-ups: [`SECURITY.md`](SECURITY.md) · [`PERMANENCE.md`](PERMANENCE.md) · [`AUDIT_RESPONSE.md`](AUDIT_RESPONSE.md).
 
 ---
 
@@ -163,10 +163,10 @@ The protocol is designed to **survive the operator disappearing**: deterministic
 
 This is a deliberate dial, not a permanent gatekeeper:
 
-- **Today (curated):** the treasury `audAdmin` approves apps with `addAud(clientId)`. Anyone building on SocialTwin requests allowlisting of their Twitch app's `client_id` and their users immediately work against the same twins. This is the safe default while the verifier is pending external audit.
+- **Today (curated):** the treasury `audAdmin` approves apps with `queueAud(clientId)` → `commitAud` (a 2-day timelock, so a compromised admin can't *instantly* allowlist a phishing app). Anyone building on SocialTwin requests allowlisting of their Twitch app's `client_id` and, after the timelock, their users work against the same twins. This is the safe default while the verifier is pending external audit.
 - **The lever — full decentralization:** once the verifier is audited and we're confident open mode is safe, the allowlist can be switched off, either reversibly with `setAudCheckEnabled(false)` or **permanently and irreversibly** with `lockOpenForever()` — which disables the audience check *and* zeroes out the admin in the same call. After that, **any** Twitch app's JWTs are accepted and there is no admin role left at all. That accepts the same phishing surface every wallet already lives with (a user logging into a compromised site), in exchange for removing the last point of operator control.
 
-So the trust dial reads: *curated allowlist now (we approve your app on request) → audited → flip to open / lock-open-forever for a fully permissionless, admin-less protocol.* Details and rationale in [`docs/FEDERATION.md`](docs/FEDERATION.md), [`docs/ADDING_PROVIDERS.md`](docs/ADDING_PROVIDERS.md), and [`PERMANENCE.md`](PERMANENCE.md).
+So the trust dial reads: *curated allowlist now (we approve your app on request) → audited → flip to open / lock-open-forever for a fully permissionless, admin-less protocol.* Details and rationale in [`PERMANENCE.md`](PERMANENCE.md) and [`SECURITY.md`](SECURITY.md).
 
 ---
 
@@ -178,7 +178,6 @@ So the trust dial reads: *curated allowlist now (we approve your app on request)
 | [`contracts/TwinAccount.sol`](contracts/TwinAccount.sol) | Per-user account: `execute`/`executeBatch` (JWT), `executeAsOwner` (wallet), `setOwnerEOA`, `initiateRescue`/`completeRescue` |
 | [`contracts/TwitchJWTVerifier.sol`](contracts/TwitchJWTVerifier.sol) | Onchain RSA/SHA-256 JWT verification + timelocked `aud` allowlist + off-switch |
 | [`contracts/interfaces/IVerifier.sol`](contracts/interfaces/IVerifier.sol) | `verify(userId, actionHash, epoch, proof)` — pluggable verifier interface |
-| `contracts/SocialTwinEscrow.sol` | Legacy escrow-model prototype, retained for reference; not deployed |
 
 Per-function reference: [`contracts/README.md`](contracts/README.md) and [`ARCHITECTURE.md`](ARCHITECTURE.md). JWT format and binding spec: [`PROTOCOL.md`](PROTOCOL.md).
 
@@ -187,12 +186,13 @@ Per-function reference: [`contracts/README.md`](contracts/README.md) and [`ARCHI
 ## Repository layout
 
 ```
-contracts/     Solidity sources (core + optional verifiers + test mocks)
-test/          Hardhat test suite, incl. RedTeam.test.ts adversarial vectors
+contracts/     Solidity sources (TwinFactory, TwinAccount, TwitchJWTVerifier, IVerifier, test mocks)
+test/          Hardhat suite: TwinAccount, TwinV2Features, TwitchJWTVerifier, FuzzVerifier, RedTeam, E2EJourney
 scripts/       Deployment scripts (stack, factory, local)
-sdk/           TypeScript SDK: off-chain address prediction + OAuth flow helpers + ABIs
-docs/          Architecture, integration, trust model, federation, key management, migration
-*.md           Protocol spec, security, permanence, red-team findings, roadmap
+sdk/           TypeScript SDK: off-chain address prediction + Twitch-OIDC flow helpers + ABIs
+clear-signing/ ERC-7730 descriptor for the owner-EOA wallet path
+docs/          INTEGRATION, DEPLOYMENT, index
+*.md           ARCHITECTURE, PROTOCOL, SECURITY, PERMANENCE, AUDIT_RESPONSE, RED_TEAM_FINDINGS, CHANGELOG
 ```
 
 ## Build, test, deploy

@@ -1,77 +1,50 @@
-> **⚠️ Superseded (v1.1, post-audit):** This document predates the audit response and describes the earlier **attestor / off-chain-signer** model, which was **removed**. The deployed protocol verifies Twitch JWTs **entirely onchain** (`TwitchJWTVerifier`), with a two-phase abandoned-funds rescue and a timelocked `aud` allowlist. For the current design see [`README.md`](README.md) and [`AUDIT_RESPONSE.md`](AUDIT_RESPONSE.md); the onchain-JWT review is in [`SECURITY_REVIEW.md`](SECURITY_REVIEW.md). Retained for historical context.
-
 # Security
 
-This document is the formal threat model. The audit report on the prior onchain JWT design is preserved at `SECURITY_REVIEW.md`. This file covers the **current attestor-based design** plus residual risk for both.
+Threat model and trust assumptions for the deployed twin/JWT system. Companion docs: [`AUDIT_RESPONSE.md`](./AUDIT_RESPONSE.md) (external review by Sterling Crispin + fixes + live red-team) and [`RED_TEAM_FINDINGS.md`](./RED_TEAM_FINDINGS.md) (internal adversarial vectors).
 
-## Trust roots (and only these)
+> **Status:** internally red-teamed + one external review; **not yet fully audited.** The onchain RSA/base64/JSON verifier is intricate, correctness-critical code — get a dedicated external audit + fuzzing before routing large value.
 
-1. **The IdP's identity infrastructure.** Twitch's OAuth backend and authentication systems. If a Twitch account is compromised, the funds in its twin can be drained — by design.
-2. **The attestor's ECDSA private key.** If the key leaks, an attacker can sign arbitrary attestations and drain every twin bound to that verifier.
-3. **Base sequencer + Ethereum L1.** Standard L2 trust.
-4. **EVM precompiles** (ecrecover for ECDSA).
+## Trust roots
 
-The contracts themselves are immutable and have no admin. There is no fourth-or-later trust root.
+Spending a twin trusts exactly:
 
-## What is guaranteed
+1. **Twitch's RSA signing key** (`kid="1"`) — the identity ceiling. A Twitch key compromise (or a forged token) is the only way to impersonate a user on the JWT path.
+2. **The Base sequencer / L1** — liveness and ordering.
+3. **The EVM `modexp` precompile (`0x05`)** — RSA exponentiation.
+4. **A treasury multisig** — for app-allowlist curation and abandoned-fund rescue only (see Roles). It cannot move an active user's funds.
+
+**No server, oracle, witness network, TEE, or off-chain protocol is in the spend path.** The JWT is verified entirely onchain.
+
+## Guarantees
 
 | Property | Mechanism |
 |---|---|
-| Cross-user isolation | `TwinAccount` has immutable `userId`; verifier checks attestation binds same `userId`; action hash includes `address(this)`. |
-| Permissionless submission | No `msg.sender` check on `execute()`. Front-runners gain nothing because funds flow to `target`, not the submitter. |
-| Deterministic address | CREATE2 with fully-known inputs. No selfdestruct path in `TwinAccount`. Post-EIP-6780, address is permanent. |
-| Replay protection | Action hash binds chainid, twin address, userId, target, value, data hash, nonce, deadline. Nonce moves on every successful call. |
-| Freshness | `MAX_PROOF_AGE = 5 minutes` past, `MAX_CLOCK_SKEW = 60 seconds` future. |
-| No admin | Factory and verifier are immutable; no setters; no upgrade proxy. |
-| Reentrancy safety | `nonReentrant` modifier + effects-before-interactions on nonce. |
+| No user can spend another's twin | verifier enforces `sub == userId`; action hash binds `userId` + twin address |
+| No replay / cross-twin / cross-chain reuse | action hash binds chainid, twin, nonce, deadline, target, value, calldata; 5-min freshness window |
+| Permissionless settlement | `execute` has no `msg.sender` check — any wallet/relayer can submit a valid JWT |
+| Anti-phishing | only allowlisted OAuth `aud`s accepted; a malicious site's own Twitch app yields a different `aud` → rejected; new `aud`s are timelocked 2 days |
+| Self-custody severs Twitch | `setOwnerEOA` sets a one-way `selfCustody` flag that permanently disables the JWT path — a compromised/phished Twitch login can no longer drain or re-point the twin |
+| Survives operator death | deterministic addresses + permissionless `execute` + wallet-owned `executeAsOwner` (see [`PERMANENCE.md`](./PERMANENCE.md)) |
+| No admin over user funds | treasury can curate the `aud` allowlist and recover *never-activated* twins (two-phase, 90-day public window) — nothing more |
 
-## What is NOT guaranteed
+## Privileged roles
 
-| Risk | Why | Mitigation |
-|---|---|---|
-| Twitch account compromise | The whole protocol delegates identity to Twitch. | None at the protocol layer. Standard Twitch account security (strong password, 2FA, no credential reuse). |
-| Attestor key compromise | The verifier accepts any signature from the approved set. | Hardware key storage (HSM, KMS, secure enclave). Air-gap signing. Multi-attestor 1-of-N reduces but doesn't eliminate. Future N-of-M threshold verifier would. |
-| Verifier rotation | Verifier is immutable; new approved-attestor sets require a new verifier (and new factory) deployment. Old twins are stranded with the old verifier. | Plan rotation overlap windows: keep the old key signing valid attestations until users migrate. |
-| Phishing | A user who clicks "Sign in with Twitch" on a malicious site authorizes whatever `action_hash` that site put in the OAuth URL. The contract can't tell the difference between a legitimate dApp and a phishing site. | URL bar awareness. `force_verify=true` on the attestor side. Future: standardized signing surfaces (similar to MetaMask's confirmation popup). |
-| Long-lived attestor downtime | Without a live attestor, users can't spend their twins. | Run multiple attestor instances (`AttestorVerifier`'s 1-of-N support). Document a self-hosting playbook. |
-| Compiler-level bugs | Solidity 0.8.24 (viaIR=true, optimizer=200) is the assumed compiler. Future compiler regressions could affect deployed bytecode. | Already-deployed contracts are unaffected by post-deploy compiler changes. New deployments should re-audit if the toolchain shifts. |
-
-## Threat scenarios, walked through
-
-### Attacker has my Twitch account
-Same outcome as if they had my MetaMask seed phrase. They sign in to a dApp, authorize whatever action they want, the attestor signs, the twin executes. Protocol cannot fix this; it's the IdP's job.
-
-### Attacker has the attestor's signing key
-Catastrophic. They drain every twin bound to that verifier without any user interaction or Twitch involvement. This is why the attestor's key must be treated like a CA key: HSM-stored, rotated periodically, monitored for unusual signing activity.
-
-### Attacker runs a malicious "Sign in with Twitch" page
-The user redirects to twitch.tv (real Twitch URL bar), clicks Authorize, gets bounced back to the attacker's page. The attacker's page submits `execute()` with the attestation. Since action_hash binds `target`, the attacker would have set `target = attacker_wallet` in the original redirect — and the attestor signed for that action_hash. Drain.
-
-This is unavoidable for OIDC-based identity. The user's defense:
-- Bookmark the legitimate dApp URL.
-- Don't click "Sign in with Twitch" from emails/DMs.
-- Check the URL bar shows the expected dApp origin before clicking.
-
-### Attacker intercepts the attestation in transit
-The attestation lands in the URL fragment, which is client-side only — never sent to the server, never logged in Referer headers, never indexed by search engines. An attacker on the user's network can't see it. The only way to capture it is by controlling the dApp the user is using, which is the phishing case above.
-
-### Attacker submits a captured attestation from someone else's flow
-- Same `userId`: attacker doesn't have a twin for that userId, and the action_hash binds `target` which the attacker can't redirect.
-- Different `userId`: AttestorVerifier digest binds `userId`; the recovered signer won't match the approved set.
-
-### Replay across chains
-The attestor digest binds `chainid` and the verifier `address(this)`. An attestation valid on Base is invalid on any other chain (different chainid → different digest → different recovered signer).
-
-### Time attacks
-The `MAX_PROOF_AGE` window is 5 minutes. The `MAX_CLOCK_SKEW` future-cap is 60 seconds. Both are enforced in `TwinAccount.execute`. Outside these windows, the verifier rejects.
-
-## Audit history
-
-| Date | Auditor | Scope | Outcome |
+| Role | Where | Can | Cannot |
 |---|---|---|---|
-| 2026-05-27 | Internal security review | Original twin/JWT design | No critical/high findings. Three low-severity defensive fixes applied. Report: `SECURITY_REVIEW.md`. |
-| TBD | External | `AttestorVerifier` + revised twin | Recommended before mainnet adoption with real value |
+| `audAdmin` | `TwitchJWTVerifier` | `queueAud`→(2-day timelock)→`commitAud`, `removeAud` (immediate), `setAudCheckEnabled`, `lockOpenForever` | move funds; instantly allowlist an app |
+| `rescuer` | `TwinFactory` | `initiateRescue` / `completeRescue` on **never-activated** twins after a 90-day window | touch any activated/owned twin; rescue without the public delay |
 
-## Reporting vulnerabilities
+Both are the treasury multisig. `lockOpenForever()` permanently drops `audAdmin` and accepts any app's JWTs (graduating to full permissionlessness). `rescuer` is non-renounceable but transferable.
 
-Email `security@<your-org>` with reproducer. Bounty terms in `SECURITY_BOUNTY.md` (not yet drafted).
+The off-chain **relayer** key is spend-risk only (it pays gas); it is powerless beyond that — it can only broadcast what a JWT authorized, and must verify `twin == factory.predictAddress(jwt.sub)` before paying.
+
+## Residual risks (honest)
+
+- **OAuth blind-signing.** The Twitch consent screen can't display tx details, so JWT-path authorization is "blind." The action-hash binding stops tampering/redirection, and the `aud` allowlist stops foreign apps — but a user authorizing a malicious *allowlisted* app (or open mode) is the same ceiling as any "Sign in with X." Mitigations: dApps must show the action pre-redirect; `force_verify=true`; **and self-custody removes the JWT path entirely for that twin.** See [`AUDIT_RESPONSE.md`](./AUDIT_RESPONSE.md) Finding 2.
+- **Twitch key rotation.** Moduli are baked in at deploy; if Twitch rotates `kid="1"`, the JWT path stalls until a new verifier+factory is deployed and users migrate. We deliberately do **not** allow admin key-injection (that would let the admin forge tokens). Self-custodied twins and `executeAsOwner` are unaffected; a JWKS watchdog gives advance warning.
+- **Treasury key.** A compromised treasury could allowlist a phishing app (after the 2-day timelock — publicly visible) or rescue never-activated twins after 90 days. It cannot take active users' funds. Keep it a multisig.
+- **Unaudited verifier.** Hand-rolled onchain base64url/JSON/RSA. Internally red-teamed (22+ vectors) + a fuzz suite (`test/FuzzVerifier.test.ts`), but a specialist audit is still recommended.
+
+## Verified deployment
+
+The live v1.2 contracts are **source-verified on Basescan**, so the deployed bytecode provably equals the code in this repo and exercised by the test suite. Addresses in [`README.md`](./README.md).

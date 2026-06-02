@@ -1,34 +1,19 @@
-> **⚠️ Superseded (v1.1, post-audit):** This document predates the audit response and describes the earlier **attestor / off-chain-signer** model, which was **removed**. The deployed protocol verifies Twitch JWTs **entirely onchain** (`TwitchJWTVerifier`), with a two-phase abandoned-funds rescue and a timelocked `aud` allowlist. For the current design see [`README.md`](../README.md) and [`AUDIT_RESPONSE.md`](../AUDIT_RESPONSE.md); the onchain-JWT review is in [`SECURITY_REVIEW.md`](../SECURITY_REVIEW.md). Retained for historical context.
-
 # `docs/`
 
-Adopter, operator, and contributor documentation.
+Adopter and operator guides. Start at the root [`README.md`](../README.md) for what this is and the live addresses.
 
-## For adopters (building on top)
+## Build on it
+- [`INTEGRATION.md`](./INTEGRATION.md) — integrate into a dApp (read state, fund by identity, Twitch-JWT claim, self-custody, gasless relaying)
+- [`../sdk/README.md`](../sdk/README.md) — the `@socialtwin/sdk` TypeScript helpers
 
-- [`INTEGRATION.md`](./INTEGRATION.md) — sender + recipient dApp integration
-- [`FRONTEND_SDK.md`](./FRONTEND_SDK.md) — using `@socialtwin/sdk` in a React/Vue/Svelte app
-- [`ADDING_PROVIDERS.md`](./ADDING_PROVIDERS.md) — supporting Google, Apple, Discord, etc.
+## Run / deploy it
+- [`DEPLOYMENT.md`](./DEPLOYMENT.md) — deploy + verify the stack; what to do after a contract change
 
-## For operators (running an attestor)
-
-- [`ATTESTOR_OPERATIONS.md`](./ATTESTOR_OPERATIONS.md) — deployment, monitoring, federation
-- [`KEY_MANAGEMENT.md`](./KEY_MANAGEMENT.md) — signing-key storage, rotation, incident response
-- [`DEPLOYMENT.md`](./DEPLOYMENT.md) — deploying the contracts and wiring everything together
-- [`MIGRATION.md`](./MIGRATION.md) — verifier rotation, IdP changes, key compromise recovery
-
-## For evaluators / security folks
-
-- [`../PERMANENCE.md`](../PERMANENCE.md) — is it decentralized? what locks funds? (start here)
-- [`TRUST_MODEL.md`](./TRUST_MODEL.md) — what you trust, what you don't, why
-- [`FEDERATION.md`](./FEDERATION.md) — 1-of-N today, N-of-M roadmap
-- [`COMPARISON.md`](./COMPARISON.md) — vs. Reclaim, Wormhole, zkLogin, AA+passkey, ENS, Lit
-- [`../SECURITY.md`](../SECURITY.md) — formal threat model
-- [`../SECURITY_REVIEW.md`](../SECURITY_REVIEW.md) — audit report (prior onchain JWT design)
-
-## For maintainers (this repo)
-
-- [`../ARCHITECTURE.md`](../ARCHITECTURE.md) — one-page system design
-- [`../PROTOCOL.md`](../PROTOCOL.md) — wire formats, ABIs, signature schemes
-- [`../ROADMAP.md`](../ROADMAP.md) — what's next
-- [`../CHANGELOG.md`](../CHANGELOG.md) — change history
+## Understand / evaluate it
+- [`../ARCHITECTURE.md`](../ARCHITECTURE.md) — how the pieces fit
+- [`../PROTOCOL.md`](../PROTOCOL.md) — exact wire formats (CREATE2, action-hash binding, OIDC flow, verification)
+- [`../SECURITY.md`](../SECURITY.md) — threat model, trust roots, privileged roles, residual risks
+- [`../PERMANENCE.md`](../PERMANENCE.md) — does it survive the operator disappearing?
+- [`../AUDIT_RESPONSE.md`](../AUDIT_RESPONSE.md) — external review (Sterling Crispin) + fixes + live red-team
+- [`../RED_TEAM_FINDINGS.md`](../RED_TEAM_FINDINGS.md) — internal adversarial vectors
+- [`../CHANGELOG.md`](../CHANGELOG.md) — version history

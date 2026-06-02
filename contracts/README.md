@@ -10,11 +10,9 @@ Solidity sources for the SocialTwin protocol on Base.
 | [`TwinAccount.sol`](./TwinAccount.sol) | Per-user smart account. JWT path (`execute`/`executeBatch`), self-custody owner path (`executeAsOwner`/`setOwnerEOA`/`rotateOwnerEOA`), two-phase rescue (`initiateRescue`/`completeRescue`) |
 | [`TwitchJWTVerifier.sol`](./TwitchJWTVerifier.sol) | **The deployed verifier.** Verifies Twitch RS256 id_tokens entirely onchain (modexp precompile); timelocked `aud` allowlist + off-switch |
 | [`interfaces/IVerifier.sol`](./interfaces/IVerifier.sol) | Pluggable verifier interface: `verify(userId, actionHash, epoch, proof)` |
-| `SocialTwinEscrow.sol` | Legacy escrow-model prototype; **not deployed**; retained for reference |
-| `mocks/MockVerifier.sol` | Test helper — single-key ECDSA verifier (used by the legacy escrow tests) |
 | `mocks/MockERC20.sol` | Test helper — minimal ERC-20 |
 
-> The optional `AttestorVerifier` (a 1-of-N attestor model) was **removed in v1.1** — see [`../AUDIT_RESPONSE.md`](../AUDIT_RESPONSE.md), Finding 4.
+> Two earlier experiments were removed as dead weight: the optional `AttestorVerifier` (a 1-of-N attestor model — see [`../AUDIT_RESPONSE.md`](../AUDIT_RESPONSE.md), Finding 4) and `SocialTwinEscrow` (a legacy ECDSA escrow prototype). Neither was deployed.
 
 ## Toolchain
 

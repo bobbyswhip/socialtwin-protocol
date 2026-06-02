@@ -1,138 +1,98 @@
-> **⚠️ Superseded (v1.1, post-audit):** This document predates the audit response and describes the earlier **attestor / off-chain-signer** model, which was **removed**. The deployed protocol verifies Twitch JWTs **entirely onchain** (`TwitchJWTVerifier`), with a two-phase abandoned-funds rescue and a timelocked `aud` allowlist. For the current design see [`README.md`](README.md) and [`AUDIT_RESPONSE.md`](AUDIT_RESPONSE.md); the onchain-JWT review is in [`SECURITY_REVIEW.md`](SECURITY_REVIEW.md). Retained for historical context.
+# Protocol
 
-# SocialTwin Protocol v1
+Wire formats for the SocialTwin twin/JWT system on Base. Source of truth is the contracts; this documents what an integrator must reproduce. Chain: Base mainnet (`8453`). Live addresses: [`README.md`](./README.md).
 
-Exact wire formats, hashing schemes, ABI. The reference implementation in this repo follows this spec; any adapter must too.
-
-## 1. Identifiers
-
-| Field | Type | Source |
-|---|---|---|
-| `userId` | `uint64` | IdP's immutable numeric user identifier. For Twitch: `sub` claim of the id_token, parsed as decimal. |
-| `twinAddress` | `address` | `CREATE2(factory, salt, initcode)` |
-| `verifier` | `address` | The `IVerifier` implementation the twin is bound to |
-| `chainId` | `uint256` | EVM chain id (e.g., `8453` for Base) |
-
-## 2. Twin address derivation
+## 1. Deterministic twin address (CREATE2)
 
 ```
-salt        = keccak256(abi.encodePacked("SocialTwin:twitch:v1", uint64(userId)))
-init_code   = TwinAccount.creationCode || abi.encode(uint64(userId), address(verifier))
-twin_addr   = address(uint160(uint256(
-                  keccak256(abi.encodePacked(
-                      bytes1(0xff),
-                      address(factory),
-                      salt,
-                      keccak256(init_code)
-                  ))
-              )))
+salt      = keccak256(abi.encodePacked("SocialTwin:twitch:v2", uint64(userId)))
+initCode  = TwinAccount.creationCode ++ abi.encode(uint64(userId), address(verifier))
+twin      = address(keccak256(0xff ++ factory ++ salt ++ keccak256(initCode))[12:])
 ```
 
-Reference: `contracts/TwinFactory.sol::predictAddress`. JS/TS adapter: `sdk/src/address.ts::predictTwinAddress`.
+- Onchain: `TwinFactory.predictAddress(uint64 userId)`. Offchain: `sdk` → `predictTwinAddress({factory, verifier, userId})`.
+- `TwinAccount.creationCode` is compiler-sensitive (solc 0.8.24, viaIR, optimizer runs=200, evmVersion=cancun). Changing it changes every twin address and the SDK's `TWIN_ACCOUNT_INIT_CODE`. The factory embeds the creation code, so a new `TwinAccount` ⇒ a new factory address.
+- Fund a twin by sending ETH/ERC-20 to `predictAddress(userId)` — no deploy required first. Deploy lazily with `deployTwin(userId)` before the first function call.
 
-The string `"SocialTwin:twitch:v1"` is the domain separator. Forks targeting other IdPs MUST use a different domain to avoid address collisions.
+## 2. Action-hash binding
 
-## 3. Action hash (what the attestor signs over, indirectly)
+The action a user authorizes is hashed and embedded into the OAuth `nonce`, binding the JWT to one exact call on one twin on one chain.
 
-For `TwinAccount.execute(target, value, data, nonce, deadline)`:
+```solidity
+// execute
+keccak256(abi.encode("TwinAccount:v2:execute",
+  block.chainid, address(this), userId, target, value, keccak256(data), nonce, deadline))
 
-```
-actionHash = keccak256(abi.encode(
-    "TwinAccount:v1:execute",
-    block.chainid,
-    address(twin),
-    twin.userId(),
-    target,
-    value,
-    keccak256(data),
-    nonce,
-    deadline
-))
-```
+// executeBatch
+keccak256(abi.encode("TwinAccount:v2:executeBatch",
+  block.chainid, address(this), userId,
+  keccak256(abi.encodePacked(targets)), keccak256(abi.encodePacked(values)),
+  keccak256(abi.encodePacked(dataHashes)),     // dataHashes[i] = keccak256(datas[i])
+  nonce, deadline))
 
-For `executeBatch(targets[], values[], datas[], nonce, deadline)`:
-
-```
-actionHash = keccak256(abi.encode(
-    "TwinAccount:v1:executeBatch",
-    block.chainid,
-    address(twin),
-    twin.userId(),
-    keccak256(abi.encodePacked(targets)),    // tightly-packed address[]
-    keccak256(abi.encodePacked(values)),     // tightly-packed uint256[]
-    keccak256(abi.encodePacked(dataHashes)), // tightly-packed bytes32[] where dataHashes[i] = keccak256(datas[i])
-    nonce,
-    deadline
-))
+// setOwnerEOA
+keccak256(abi.encode("TwinAccount:v2:setOwnerEOA",
+  block.chainid, address(this), userId, newOwner, nonce, deadline))
 ```
 
-Reference: `contracts/TwinAccount.sol`.
+Read these from the contract: `computeActionHash`, `computeBatchHash`, `computeSetOwnerHash`. The OAuth `nonce` is the lowercase `0x…`-prefixed hex of the 32-byte hash.
 
-## 4. Attestor digest (what the attestor ECDSA-signs)
+## 3. Twitch OIDC implicit flow
 
-```
-digest = keccak256(abi.encode(
-    "SocialTwin:AttestorVerifier:v1",
-    block.chainid,
-    address(verifier),
-    userId,
-    actionHash,
-    oauthExchangeEpoch
-))
-```
-
-The attestor then signs `MessageHashUtils.toEthSignedMessageHash(digest)` — i.e., applies the EIP-191 personal_sign prefix. Reference: `contracts/AttestorVerifier.sol::computeDigest`, `attestor/src/signer.ts::computeDigest`.
-
-`oauthExchangeEpoch` is the unix timestamp (seconds) at which the attestor finished verifying the IdP id_token. The onchain `TwinAccount.execute` enforces:
+Redirect the user (top-level) to:
 
 ```
-block.timestamp <= oauthExchangeEpoch + 5 minutes        // freshness
-oauthExchangeEpoch <= block.timestamp + 60 seconds       // clock skew cap
+https://id.twitch.tv/oauth2/authorize
+  ?client_id=<allowlisted client_id>      # becomes the JWT `aud`
+  &redirect_uri=<exact registered URI>     # trailing slash matters
+  &response_type=id_token
+  &scope=openid
+  &nonce=<hex(actionHash)>                 # the binding
+  &force_verify=true                       # consent every time
 ```
 
-## 5. Attestation transport format
+Twitch returns the signed `id_token` in the URL **fragment**: `…#id_token=<JWT>&…`. Claims: `iss`, `aud`, `sub` (numeric user_id, a JSON string), `iat`, `exp`, `nonce`, plus `preferred_username`/`picture`.
 
-After the OAuth round-trip, the attestor returns to the dApp via the URL fragment:
+> The Twitch consent screen cannot show transaction details — your dApp MUST display the exact action (recipient, amount, twin) before redirecting. The action-hash binding makes a tampered call revert onchain, but the human still needs to see what they approve.
 
-```
-<return_to>#attestation=0x<65 bytes hex>&user_id=<decimal>&epoch=<decimal>&action_hash=0x<bytes32>&signer=0x<address>&provider=<string>[&preferred_username=<string>][&picture=<url>]
-```
+## 4. Submitting the call
 
-The fragment is opaque to the network — never sent to the server. The dApp parses it via `sdk/src/oauth.ts::parseReturnFragment`.
-
-## 6. `execute()` calldata
-
-```
-twin.execute(
-    address  target,
-    uint256  value,
-    bytes    data,
-    uint256  _nonce,
-    uint256  deadline,
-    uint256  oauthExchangeEpoch,
-    bytes    proof          // ECDSA sig (65 bytes) for AttestorVerifier;
-                            // JWT bytes for TwitchJWTVerifier
-)
+```solidity
+twin.execute(target, value, data, nonce, deadline, oauthExchangeEpoch, jwt)
 ```
 
-The contract is `IVerifier`-agnostic. `proof` is opaque bytes whose interpretation is the responsibility of the bound verifier.
+- `nonce` — the twin's current `nonce()` (per-twin replay counter; increments on success).
+- `deadline` — unix seconds; reverts past it.
+- `oauthExchangeEpoch` — must equal the JWT's `iat`.
+- `jwt` — the **raw** id_token bytes (`utf8("header.payload.signature")`).
 
-## 7. ABI exports
+Submit from the user's wallet **or** any relayer — `execute` has no `msg.sender` check.
 
-JSON ABIs for the three contracts plus initcode for the SDK live in `sdk/src/abis.ts`. They're machine-extracted from compiled artifacts — re-run `npx hardhat compile` and copy the relevant blobs if you change the contracts.
+## 5. Onchain verification (what must hold)
 
-## 8. Versioning
+`TwinAccount._checkJwt` then `TwitchJWTVerifier.verify` enforce, in effect:
 
-Domain separators (`"SocialTwin:twitch:v1"`, `"TwinAccount:v1:execute"`, `"SocialTwin:AttestorVerifier:v1"`) carry the `v1` tag. Breaking changes increment the tag and use a new domain string. Pre-existing twins keep working under their original version forever; new deployments adopt the new domain.
+1. `selfCustody == false` (else `SelfCustodyEnabled` — the JWT path is dead once a wallet is linked).
+2. `nonce` == the twin's stored nonce; `block.timestamp <= deadline`.
+3. Freshness: `block.timestamp <= iat + MAX_PROOF_AGE` (5 min) and `iat <= block.timestamp + MAX_CLOCK_SKEW` (60 s).
+4. JWT header `alg == "RS256"`, `kid` known.
+5. RSA-2048 PKCS#1 v1.5 + SHA-256 signature valid over `header.payload` against the baked-in Twitch modulus (via the `modexp` precompile `0x05`; byte-exact padding check, RFC 8017).
+6. `iss == "https://id.twitch.tv/oauth2"`.
+7. `aud` ∈ allowlist (when `audCheckEnabled`).
+8. `sub` (decimal) `== userId` — the cross-user isolation guarantee.
+9. `iat == oauthExchangeEpoch`.
+10. `nonce` (string) `== hex(actionHash)`.
 
-## 9. Bumping the IdP
+Any failure reverts; the verifier returns `true` only when all hold.
 
-Forks targeting a different IdP MUST change at least:
+## 6. Self-custody (one-way)
 
-| Constant | Where |
-|---|---|
-| `SALT_DOMAIN` | `TwinFactory.sol`, `sdk/src/address.ts` |
-| Provider registry entries | `attestor/src/index.ts` |
-| Domain separator if semantics differ | All of the above |
+`setOwnerEOA(newOwner, …, jwt)` (JWT-gated, once) sets `ownerEOA` and the permanent `selfCustody` flag. While `selfCustody` is set, `execute`/`executeBatch`/`setOwnerEOA` all revert `SelfCustodyEnabled`; only `executeAsOwner(target,value,data)` and `rotateOwnerEOA(newOwner)` (both require `msg.sender == ownerEOA`) work. There is no path to re-enable Twitch.
 
-For pure-OIDC swaps (Google ↔ Twitch ↔ Apple), the salt domain can stay the same if you want addresses to remain stable across IdPs — but most adopters will want isolation, so a new domain like `"SocialTwin:google:v1"` is the safe default.
+## 7. Rescue (two-phase, intent-timed)
+
+`initiateRescue()` (rescuer-only, never-activated twin) starts a `RESCUE_DELAY` (90-day) countdown from that call. `completeRescue(designatedEOA)` then delegates control after the delay if the twin is still never-activated. Any JWT action / `setOwnerEOA` sets `activated` and blocks rescue. `completeRescue` does **not** set `selfCustody`, so the real streamer can still reclaim via JWT.
+
+## Constants
+
+`MAX_PROOF_AGE = 5 minutes` · `MAX_CLOCK_SKEW = 60 seconds` · `RESCUE_DELAY = 90 days` · `AUD_TIMELOCK = 2 days`.

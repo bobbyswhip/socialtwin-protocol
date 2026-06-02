@@ -54,7 +54,7 @@ Because the clock runs from the rescuer's public signal — not from deploy — 
 
 **Issue.** The optional `AttestorVerifier` used a 1-of-N approved-signer model — an oracle/guardian, contradicting the protocol's decentralization claims. It was **never part of the deployed stack** (deployed verifier is `TwitchJWTVerifier`).
 
-**Fix.** Removed `contracts/AttestorVerifier.sol`, its tests, the `ATTESTOR_VERIFIER_ABI` SDK export, and `docs/ATTESTOR_OPERATIONS.md`; the SDK was reframed off the attestor model (Finding 3). Attestor-era design docs are retained with a deprecation banner for historical context only.
+**Fix.** Removed `contracts/AttestorVerifier.sol`, its tests, the `ATTESTOR_VERIFIER_ABI` SDK export, and the attestor-era design docs; the SDK was reframed off the attestor model (Finding 3) and the protocol docs (`ARCHITECTURE`, `PROTOCOL`, `SECURITY`, `INTEGRATION`, …) were rewritten to describe the deployed Twitch-JWT design.
 
 ## Finding 5 — JWT key-rotation risk (Medium) ✅ Documented
 
@@ -101,4 +101,4 @@ This is access-control + revert-path coverage on the live deployment; it complem
 
 - **Slither / static analysis:** not run in the original review; recommended as part of the external audit.
 - **44 transitive dev-dependency advisories:** dev-only (Hardhat toolchain), not in any deployed artifact. Tracked, not blocking.
-- **`SocialTwinEscrow.sol`:** legacy prototype, never deployed; retained as reference and clearly labeled.
+- **`SocialTwinEscrow.sol`:** a legacy ECDSA-escrow prototype (never deployed) — removed along with its only consumer, the `MockVerifier` test helper, as dead weight.

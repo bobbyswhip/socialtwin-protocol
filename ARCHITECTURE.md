@@ -1,116 +1,56 @@
-> **⚠️ Superseded (v1.1, post-audit):** This document predates the audit response and describes the earlier **attestor / off-chain-signer** model, which was **removed**. The deployed protocol verifies Twitch JWTs **entirely onchain** (`TwitchJWTVerifier`), with a two-phase abandoned-funds rescue and a timelocked `aud` allowlist. For the current design see [`README.md`](README.md) and [`AUDIT_RESPONSE.md`](AUDIT_RESPONSE.md); the onchain-JWT review is in [`SECURITY_REVIEW.md`](SECURITY_REVIEW.md). Retained for historical context.
-
-## Privileged roles (current, v1.1)
-
-The deployed protocol has exactly two onchain privileged roles, neither of which can move an active user's funds:
-
-- **`audAdmin`** (on `TwitchJWTVerifier`) — curates the anti-phishing `aud` allowlist. New `aud`s are **timelocked 2 days** (`queueAud` → `commitAud`); `removeAud`, `setAudCheckEnabled(false)` and `lockOpenForever()` are immediate (the safety direction is never delayed). Cannot move funds. Should be a multisig; `lockOpenForever()` permanently drops the role.
-- **`rescuer`** (on `TwinFactory`) — runs the two-phase abandoned-funds rescue (`initiateRescue` → 90-day public window → `completeRescue`) on **never-activated** twins only. Non-renounceable but transferable to a DAO/multisig. Can never touch a twin whose owner has shown up.
-
-Off-chain, an optional **relayer** sponsors gas but is powerless — the JWT (or owner signature) is the authorization and `execute` is permissionless.
-
----
-
 # Architecture
 
-One page on how the pieces fit. For wire formats see [`PROTOCOL.md`](./PROTOCOL.md).
+How the pieces fit. For exact wire formats see [`PROTOCOL.md`](./PROTOCOL.md); for the threat model see [`SECURITY.md`](./SECURITY.md).
 
-## Three actors, three jobs
+## The idea
 
-```
-┌─────────────────┐       ┌────────────────────┐       ┌───────────────────┐
-│   Sender app    │       │  Attestor service  │       │   Recipient dApp  │
-│                 │       │                    │       │                   │
-│  computes twin  │       │  redirects user    │       │  reads twin       │
-│  address from   │       │  to IdP, verifies  │       │  balance, builds  │
-│  Twitch user_id │       │  id_token, signs   │       │  execute() call,  │
-│  & sends ETH    │       │  ECDSA attestation │       │  redirects to     │
-│  to that addr   │       │                    │       │  attestor, submits│
-└─────────────────┘       └────────────────────┘       └───────────────────┘
-```
+Every Twitch user has a smart-contract account (a "twin") at a **deterministic** Base address derived from their numeric `user_id`. Anyone can fund a streamer's twin by identity *before that streamer has done anything*. The streamer later claims/controls it by signing in with Twitch — and the login proof is verified **entirely onchain**. Once they connect their own wallet, the twin becomes ordinary self-custody and Twitch is cut out for good.
 
-The sender side requires **zero** participation from the attestor or recipient. The sender just needs to know the recipient's Twitch user_id (resolvable from the handle via the public Twitch Helix API).
+## Onchain contracts
 
-## Onchain pieces
-
-| Contract | Role |
+| Contract | What it does |
 |---|---|
-| `TwinFactory` | Deploys `TwinAccount` instances at deterministic CREATE2 addresses keyed by `(salt, userId, verifier)`. Permissionless `deployTwin(userId)`. |
-| `TwinAccount` | Per-user smart account. Single storage slot (nonce). Verifies an attestation via the immutable `IVerifier` before performing arbitrary external calls. |
-| `AttestorVerifier` | `IVerifier` implementation that accepts an ECDSA signature from any address in the immutable approved-attestor set. |
-| `IVerifier` | Common interface — `verify(userId, actionHash, oauthExchangeEpoch, proof) returns (bool)`. Other verifiers can implement this without changing the twin contracts. |
-
-The factory and verifier are deployed once and immutable. There are no admin functions, no upgrade paths, and no privileged roles. Twin accounts are also immutable; each lives at its CREATE2 address forever.
-
-## Off-chain pieces
-
-| Service | Role |
-|---|---|
-| Attestor backend | Hosts the OAuth flow with the IdP, verifies the id_token signature, and ECDSA-signs the canonical digest. One private key, kept secret. |
-| Sender SDK | Predicts twin addresses off-chain so apps can route funds without RPC reads. |
-| Recipient SDK | Builds the attestor redirect, parses the returned attestation, encodes the onchain call. |
-
-## A single end-to-end transaction
+| `TwinFactory` | Derives every twin address via `CREATE2` from `user_id`; deploys twins (permissionless, idempotent). Holds the `rescuer` role. Embeds the `TwinAccount` creation code, so a new `TwinAccount` ⇒ a new factory. |
+| `TwinAccount` | The per-user account. Two spend paths (below), a one-way self-custody switch, and two-phase abandoned-funds rescue. Holds the user's ETH/tokens. |
+| `TwitchJWTVerifier` | Verifies a Twitch OIDC `id_token` (RS256) **onchain** — RSA-2048 PKCS#1 v1.5 + SHA-256 via the `modexp` precompile, base64url + JSON claim parsing. Enforces a timelocked `aud` allowlist. Implements `IVerifier`. |
+| `IVerifier` | The pluggable verification interface: `verify(userId, actionHash, oauthExchangeEpoch, proof)`. |
 
 ```
-1. User browses recipient dApp
-   → dApp wants user to spend `value` ETH from their twin to `target`.
-   → dApp reads twin.nonce(), picks deadline = now + 10min.
-   → dApp computes actionHash = twin.computeActionHash(target, value, data, nonce, deadline).
-
-2. dApp redirects to:
-     GET https://attestor.example.com/attest/twitch/start
-       ?action_hash=<actionHash>
-       &return_to=https://dapp.example.com/callback
-
-3. Attestor stores (action_hash, return_to, code_verifier) in a signed state token.
-   Attestor redirects user to id.twitch.tv with response_type=code, scope=openid, nonce=actionHash, force_verify=true.
-
-4. User authorizes on Twitch.
-5. Twitch redirects to https://attestor.example.com/attest/twitch/callback?code=...&state=...
-
-6. Attestor:
-   a. Verifies state token signature.
-   b. Exchanges code for id_token at api.twitch.tv/oauth2/token.
-   c. Verifies id_token signature against Twitch's JWKS.
-   d. Extracts sub (user_id) from id_token claims.
-   e. Signs ECDSA over keccak256(domain, chainid, verifierAddress, userId, actionHash, now).
-
-7. Attestor redirects user to:
-     https://dapp.example.com/callback#attestation=0x<65 bytes sig>&user_id=<id>&epoch=<now>&action_hash=<...>&signer=<addr>
-
-8. dApp parses the fragment, calls writeContract:
-     twin.execute(target, value, data, nonce, deadline, epoch, attestation)
-
-9. TwinAccount.execute:
-   a. Verifies nonce matches stored nonce.
-   b. Verifies block.timestamp ≤ deadline.
-   c. Verifies block.timestamp - epoch ≤ MAX_PROOF_AGE (5 min).
-   d. Re-derives actionHash from inputs.
-   e. Calls verifier.verify(userId, actionHash, epoch, attestation).
-   f. AttestorVerifier ECDSA-recovers signer, checks isApproved.
-   g. Increments nonce.
-   h. Calls target.call{value: value}(data).
-
-10. Done.
+  fund by identity (anyone, anytime)
+            │
+ user_id ──CREATE2──►  TWIN ADDRESS  ◄── ETH / ERC-20 wait here, owned, before any claim
+ (Twitch)             0xTWIN…
+                          │
+        ┌─────────────────┴──────────────────┐
+   ① Twitch JWT path                    ② Owner path (self-custody)
+   execute / executeBatch / setOwnerEOA  executeAsOwner / rotateOwnerEOA
+   • id_token verified ONCHAIN           • plain wallet signature, NO Twitch
+   • permissionless to submit            • the only path once self-custodied
+   • the bootstrap                       • survives Twitch disappearing
 ```
 
-## Why CREATE2 with `(factory, userId, verifier)`
+## Two ways to spend
 
-- Anyone can pre-compute a twin address before it exists.
-- Two implementations of the SDK arrive at the same address byte-for-byte.
-- The verifier address is baked in via the constructor args (which are part of the initcode), so changing verifiers means deploying a new factory at a new address space. This is intentional — twin authorization is tied to a specific verifier deployment.
+1. **Twitch JWT path** (`execute`, `executeBatch`, `setOwnerEOA`). Authorized by a fresh Twitch `id_token` whose OAuth `nonce` is bound to the exact action (see PROTOCOL). **Permissionless to submit** — the JWT is the authority, not `msg.sender`, so any wallet or relayer can broadcast it. This is the bootstrap path while a user has no wallet linked.
 
-## What changes if you change the IdP
+2. **Owner (self-custody) path** (`executeAsOwner`, `rotateOwnerEOA`). When the user calls `setOwnerEOA` (JWT-gated, once), the twin flips a one-way **`selfCustody`** flag: the entire JWT/Twitch path is **permanently disabled**, and only the owner EOA can act thereafter. A compromised or phished Twitch login can no longer drain or re-point the twin. Trade-off: no Twitch-based recovery once self-custodied — link a smart-contract wallet if you want key recovery.
 
-Only the attestor backend needs to know about the IdP. The onchain code never sees IdP-specific data — it only sees a `userId` and an attestor signature. So adding Google or Discord is purely a backend change: add a new provider to `attestor/src/providers/` and re-deploy that service. The onchain contracts are unchanged.
+## Abandoned-funds rescue (two-phase)
 
-This is the central reason the architecture chose backend attestation over onchain JWT verification.
+Funds sent to a twin whose streamer never shows up aren't lost forever. The factory's `rescuer` calls `initiateRescue()` (starts a public 90-day countdown from that signal — not from deploy), then `completeRescue(eoa)` after the delay. It only ever touches a **never-activated** twin; any JWT action or `setOwnerEOA` activates the twin and permanently blocks rescue. `completeRescue` does **not** set `selfCustody`, so a rescued twin can still be reclaimed by the real streamer via JWT.
 
-## Deployed default: onchain JWT verification
+## Privileged roles
 
-The Base mainnet deployment uses `TwitchJWTVerifier`, which verifies Twitch's RSA-2048 signed id_token entirely in Solidity. This is the **permanent, operator-free** path: no server sits between the user and their funds. See [`PERMANENCE.md`](./PERMANENCE.md).
+Neither role can move an active user's funds.
 
-The `AttestorVerifier` (ECDSA from an approved off-chain attestor) is an **optional** alternative for adopters who want ~10× cheaper gas and explicitly accept that spending then depends on the attestor staying alive. Both implement the same `IVerifier` interface, so the twin contracts are identical regardless of which one a deployment binds to. See [`docs/COMPARISON.md`](./docs/COMPARISON.md) for the full side-by-side.
+- **`audAdmin`** (on `TwitchJWTVerifier`) — curates the anti-phishing `aud` allowlist. New `aud`s are **timelocked 2 days** (`queueAud` → `commitAud`); `removeAud`, `setAudCheckEnabled(false)`, and `lockOpenForever()` are immediate. Should be a multisig. `lockOpenForever()` permanently drops the role and accepts any app's JWTs (full decentralization).
+- **`rescuer`** (on `TwinFactory`) — runs the two-phase rescue on never-activated twins only. Non-renounceable but transferable to a DAO/multisig.
 
-The single caveat of the JWT path is Twitch signing-key rotation; the contracts can't self-update Twitch's key trustlessly, so rotation requires a migration. A JWKS watchdog provides months of advance warning. Full analysis in [`PERMANENCE.md`](./PERMANENCE.md).
+Both are held by the treasury (`0xD1EC…`); live addresses are in [`README.md`](./README.md).
+
+## Off-chain (convenience only — not in the trust path)
+
+- **Relayer** — a funded EOA that submits JWT-authorized calls so users pay no gas. Powerless: it can only broadcast what a JWT already authorized; `execute` is permissionless so it's never a chokepoint. It must verify `twin == factory.predictAddress(jwt.sub)` before paying gas.
+- **RPC proxy / resolver / deposit indexer** — UX helpers (hide node keys, resolve `@handle → user_id`, list deposits). All replaceable by anyone or bypassable entirely. The reference web app + backend live outside this repo.
+
+The SDK ([`sdk/`](./sdk/)) reproduces address derivation and the OAuth flow off-chain so a dApp needs no server for the core path.

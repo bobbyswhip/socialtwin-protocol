@@ -1,114 +1,67 @@
-> **⚠️ Superseded (v1.1, post-audit):** This document predates the audit response and describes the earlier **attestor / off-chain-signer** model, which was **removed**. The deployed protocol verifies Twitch JWTs **entirely onchain** (`TwitchJWTVerifier`), with a two-phase abandoned-funds rescue and a timelocked `aud` allowlist. For the current design see [`README.md`](../README.md) and [`AUDIT_RESPONSE.md`](../AUDIT_RESPONSE.md); the onchain-JWT review is in [`SECURITY_REVIEW.md`](../SECURITY_REVIEW.md). Retained for historical context.
-
 # Deployment guide
 
-How to deploy the contracts to a new chain or with a new attestor set. The reference instance on Base mainnet is at:
+Deploying the SocialTwin stack (`TwitchJWTVerifier` + `TwinFactory`) to Base. The live v1.2 addresses are in the root [`README.md`](../README.md) — you only redeploy when you change a contract.
 
-- `TwinFactory` — `0x5204a18785ce8ab080B7194A679e5f0605A7b6Ec`
-- `TwitchJWTVerifier` (legacy onchain JWT) — `0xE4CC251864B0271903D458a9F5731D38ed3eeA39`
-
-For the new attestor-based path, you'll deploy your own `AttestorVerifier` and a new `TwinFactory` pointing at it.
-
-## 1. Prepare the attestor signing key
+## Prerequisites
 
 ```bash
-# Generate a fresh ECDSA key (production should use HSM or KMS)
-node -e "console.log('0x' + require('crypto').randomBytes(32).toString('hex'))"
-# → 0xa1b2c3...
-
-# Compute its address (this goes into the verifier constructor)
-node -e "
-  const { privateKeyToAddress } = require('viem/accounts');
-  console.log(privateKeyToAddress('0xa1b2c3...'));
-"
-# → 0xATTESTOR_ADDRESS
+npm install
+npm run compile
+npm test          # 101 passing
+cp .env.example .env
 ```
 
-Treat the private key like a CA root: HSM, KMS, or air-gapped storage. Anyone with this key can drain every twin bound to this verifier.
-
-## 2. Deploy AttestorVerifier
-
-```bash
-cd contracts
-# Set deployer key + RPC in .env, then:
-npx hardhat run scripts/deploy-attestor-verifier.ts --network base
+`.env`:
+```
+PRIVATE_KEY=0x...            # deployer (needs a little Base ETH for gas)
+BASE_RPC_URL=https://...     # a reliable Base RPC (defaults to mainnet.base.org)
+BASESCAN_API_KEY=...         # for source verification
 ```
 
-The script in `scripts/deploy-attestor-verifier.ts` (write this — see template below) deploys with a hardcoded set of approved attestor addresses:
+> Public RPCs sometimes rate-limit `eth_sendTransaction` or lag on read-after-write. If a deploy errors mid-flight, the tx usually still landed — recover the address from the deployer nonce (`getCreateAddress`) rather than redeploying.
 
-```ts
-const APPROVED_ATTESTORS = [
-  "0xATTESTOR_ADDRESS",
-  // add more here for 1-of-N federation
-];
-```
+## What the scripts do
 
-**Verify on Basescan immediately** so adopters can audit:
-
-```bash
-npx hardhat verify --network base <verifier_address> "[<addr1>,<addr2>]"
-```
-
-## 3. Deploy TwinFactory
-
-Modify `scripts/deploy-twin-factory.ts`:
-
-```ts
-const VERIFIER_BY_CHAIN: Record<number, string> = {
-  8453: "0xYOUR_NEW_ATTESTOR_VERIFIER",
-};
-```
-
-Then:
-
-```bash
-npx hardhat run scripts/deploy-twin-factory.ts --network base
-```
-
-## 4. Document the addresses
-
-Record in your fork's `README.md` and your `@yourorg/sdk` package's `abis.ts`:
-
-```ts
-export const TWIN_FACTORY_ADDRESS = "0x...";
-export const VERIFIER_ADDRESS = "0x...";
-```
-
-## 5. Deploy the attestor backend
-
-See [`ATTESTOR_OPERATIONS.md`](./ATTESTOR_OPERATIONS.md). Make sure `ATTESTOR_PRIVATE_KEY` matches an address in your `AttestorVerifier`'s approved set, and `VERIFIER_ADDRESS` matches the deployed verifier.
-
-## 6. Smoke test
-
-```bash
-# As Alice (a real Twitch user):
-# 1. Resolve Alice's user_id via Twitch Helix API
-# 2. Predict her twin address with predictTwinAddress()
-# 3. Send 0.0001 ETH to that address from any wallet
-# 4. Connect Alice's wallet to your dApp
-# 5. Click "Withdraw" → goes through your attestor → executes onchain
-# 6. Verify the funds land in Alice's wallet
-```
-
-## Cost estimates (Base mainnet, mid-2026)
-
-| Action | Gas | Cost @ 0.001 gwei |
-|---|---|---|
-| Deploy AttestorVerifier | ~500k | ~$0.0001 |
-| Deploy TwinFactory | ~1.5M | ~$0.0003 |
-| Deploy a TwinAccount (first execute) | ~400k | ~$0.0001 |
-| Subsequent execute() | ~80k | ~$0.00002 |
-
-Effectively free at Base prices.
-
-## Redeploying after a config change
-
-| Change | Requires redeploying |
+| Script | Deploys |
 |---|---|
-| Add a new approved attestor | `AttestorVerifier` (immutable allowlist) + new `TwinFactory` (since twin addresses depend on verifier) |
-| Rotate the attestor key | `AttestorVerifier` + new `TwinFactory` |
-| Change `MAX_PROOF_AGE` or `MAX_CLOCK_SKEW` | `TwinAccount` constants → new TwinAccount bytecode → new TwinFactory |
-| Add a new IdP | **Nothing onchain** — purely an attestor backend change |
-| Change salt domain (`"SocialTwin:twitch:v1"` → `"SocialTwin:google:v1"`) | New `TwinFactory` (different address space) |
+| `scripts/deploy-twin-stack.ts` | Full stack: `TwitchJWTVerifier(kids, moduli, auds, audAdmin)` **and** a `TwinFactory(verifier, rescuer)`. `audAdmin` and `rescuer` are set to the treasury. |
+| `scripts/deploy-twin-factory.ts` | A `TwinFactory` pointing at an **existing** verifier (`VERIFIER_BY_CHAIN`). Use this when only `TwinAccount`/`TwinFactory` changed and you want to reuse the live verifier. |
+| `scripts/deploy-local.ts` | Full stack to a local hardhat node with a generated test RSA key (the verifier's `aud` check is turned off for the harness). |
 
-Twin addresses are stable as long as the factory and verifier addresses don't change. Migrations require a coordinated "withdraw from old, deposit into new" flow.
+Constructor inputs the stack script hard-codes: Twitch `kid="1"` + its RSA-2048 modulus, the official `client_id` as the initial `aud`, and the treasury as `audAdmin` + `rescuer`.
+
+## Deploy + verify
+
+```bash
+npm run deploy:stack:base       # verifier + factory
+# or, reuse the live verifier and deploy only a new factory:
+npm run deploy:factory:base
+```
+
+Then verify on Basescan (the stack script attempts this automatically; otherwise):
+
+```bash
+npx hardhat verify --network base <verifier> '["1"]' '["0x<modulus>"]' '["<client_id>"]' <treasury>
+npx hardhat verify --network base <factory> <verifier> <treasury>
+```
+
+Verified source ⇒ the deployed bytecode provably equals this repo, which is what makes the test suite meaningful for the live contracts.
+
+## After a CONTRACT change (important)
+
+Changing `TwinAccount` changes its creation code, which changes **every twin address** and the factory bytecode. So:
+
+1. `npm run compile`, then re-sync the SDK's `TWIN_ACCOUNT_INIT_CODE` from `artifacts/contracts/TwinAccount.sol/TwinAccount.json` → `sdk/src/abis.ts`.
+2. Cross-check: the SDK's `predictTwinAddress(...)` must equal the new `factory.predictAddress(...)` for a sample id before anyone funds an address.
+3. Deploy a **new factory** (the verifier can be reused if it didn't change).
+4. Repoint integrations (frontend env, relayer's factory address) and mark the old factory deprecated. Funds in old twins stay controlled by the old contracts.
+
+## Post-deploy checks
+
+- `factory.verifier()` and `factory.rescuer()` are the intended addresses.
+- `verifier.audCheckEnabled()`, `verifier.audAdmin()`, the official `client_id` is allowlisted, `kid="1"` modulus is 256 bytes.
+- An adversarial `eth_call` matrix (non-rescuer rescue → reverts, `execute` with a bogus JWT → reverts, etc.) passes against a freshly-deployed twin — see the "Post-deploy red-team" section of [`AUDIT_RESPONSE.md`](../AUDIT_RESPONSE.md).
+
+## Operational keys
+
+`audAdmin` and `rescuer` should be a multisig (see [`SECURITY.md`](../SECURITY.md)). The deployer key only needs gas and holds no protocol power after deployment.

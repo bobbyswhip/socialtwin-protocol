@@ -1,205 +1,77 @@
-> **⚠️ Superseded (v1.1, post-audit):** This document predates the audit response and describes the earlier **attestor / off-chain-signer** model, which was **removed**. The deployed protocol verifies Twitch JWTs **entirely onchain** (`TwitchJWTVerifier`), with a two-phase abandoned-funds rescue and a timelocked `aud` allowlist. For the current design see [`README.md`](../README.md) and [`AUDIT_RESPONSE.md`](../AUDIT_RESPONSE.md); the onchain-JWT review is in [`SECURITY_REVIEW.md`](../SECURITY_REVIEW.md). Retained for historical context.
-
 # Integration guide
 
-How to build a dApp that uses the SocialTwin protocol — either as a sender (paying a Twitch user) or a recipient (spending from your twin).
+How to build on SocialTwin from a dApp. Uses the [`sdk/`](../sdk/) helpers + viem. Live v1.2 addresses are in the root [`README.md`](../README.md). Wire-format details: [`PROTOCOL.md`](../PROTOCOL.md).
 
-## Sender integration
-
-Senders need exactly one thing: the recipient's Twitch user_id. From it they derive the twin address with no onchain reads.
-
-### Step 1 — resolve handle to user_id
+## Config
 
 ```ts
-// Server-side, using a Twitch app's client credentials.
-async function resolveHandleToUserId(handle: string): Promise<bigint> {
-  const token = await getAppAccessToken();
-  const res = await fetch(
-    `https://api.twitch.tv/helix/users?login=${encodeURIComponent(handle)}`,
-    { headers: { "Client-Id": CLIENT_ID, Authorization: `Bearer ${token}` } }
-  );
-  const { data } = await res.json();
-  if (!data?.length) throw new Error("not found");
-  return BigInt(data[0].id);
-}
+const cfg = {
+  chainId: 8453,
+  factoryAddress: "0xe717Dd981Ea9FD5Fe7E61cFA11e07EDc48Ba1088", // v1.2
+  verifierAddress: "0xEaD1e986407d899fD00A8733F48Fd87DeeB33A4e",
+  twitchClientId: "<your Twitch app client_id>", // must be an allowlisted `aud`
+  redirectUri: "https://yourapp.example/claim",  // EXACT match in the Twitch app (trailing slash matters)
+};
 ```
 
-Cache aggressively — user_id never changes for a given Twitch account.
+To onboard your own frontend, ask the treasury to `queueAud(yourClientId)` (live after the 2-day timelock). Your Twitch app's redirect URL must point at *your* domain — that's what makes the allowlist anti-phishing.
 
-### Step 2 — predict the twin address
+## 1. Read state (no auth)
 
 ```ts
 import { predictTwinAddress } from "@socialtwin/sdk";
 
-const twin = predictTwinAddress({
-  factory: "0x5204a18785ce8ab080B7194A679e5f0605A7b6Ec", // your factory address
-  verifier: "0xE4CC251864B0271903D458a9F5731D38ed3eeA39", // your verifier address
-  userId: 44322889n,
-});
-// twin === "0x3165Ba6eEe60B0A99A4ec22F9Eb23758a882801a"
+const twin = predictTwinAddress({ factory: cfg.factoryAddress, verifier: cfg.verifierAddress, userId });
+const balance = await publicClient.getBalance({ address: twin });        // "claimable rewards"
+const linked  = await publicClient.readContract({ address: twin, abi: TWIN_ACCOUNT_ABI, functionName: "selfCustody" });
 ```
 
-### Step 3 — send
+Show the twin balance separately from the user's connected-wallet balance — funds live in the twin until moved.
 
-Just send ETH or ERC-20 to the predicted address. No setup needed. The twin doesn't even have to be deployed yet.
+## 2. Fund a streamer by identity
+
+Just transfer ETH/ERC-20 to `predictTwinAddress(userId)`. No recipient setup, no deploy needed first.
+
+## 3. Claim / act via Twitch (JWT path)
+
+Only while the twin is **not** self-custodied (`selfCustody == false`). Show the exact action in your UI first — the Twitch screen can't.
 
 ```ts
-await walletClient.sendTransaction({ to: twin, value: parseEther("0.01") });
-// or for ERC-20:
-await walletClient.writeContract({
-  address: USDC, abi: erc20Abi, functionName: "transfer", args: [twin, amount]
-});
+import { buildSpendFlow, parseReturnFragment, buildExecuteCall } from "@socialtwin/sdk";
+
+// before redirect: read the twin nonce, pick target/value/deadline
+const { redirectUrl } = buildSpendFlow(cfg, { twin, userId, target, value, data: "0x", nonce, deadline });
+window.location.href = redirectUrl;                       // Twitch OIDC
+
+// on return:
+const jwt = parseReturnFragment(window.location.hash);    // { idToken, userId, epoch, ... }
+await walletClient.writeContract(buildExecuteCall(intent, jwt));   // OR relay it gaslessly (below)
 ```
 
-The recipient doesn't need to know anything happened until they choose to spend.
+## 4. Self-custody (recommended for real value)
 
-## Recipient integration
+`setOwnerEOA(ownerWallet, …, jwt)` (JWT-gated, once) links the user's wallet and **permanently disables the Twitch path** for that twin. After that, spend with `executeAsOwner(target, value, data)` — a normal wallet signature, ~50k gas, no Twitch and no relayer. Your UI should detect `selfCustody == true` and switch to the owner path (hide the Twitch claim button — it would revert `SelfCustodyEnabled`).
 
-Recipients need a wallet (we recommend Coinbase Smart Wallet via wagmi) and access to an attestor service.
+## 5. Gasless relaying (optional)
 
-### Step 1 — connect wallet, learn user_id
-
-You can either ask the user to type their Twitch handle (resolve server-side) or use an "identity-only" attestor flow:
+Run a funded relayer EOA that submits JWT-authorized calls so users pay no gas. It is powerless (the JWT is the authority), but it **must** guard against burning gas on junk:
 
 ```ts
-const flow = sdk.startSpend({
-  twin: PLACEHOLDER_TWIN, // we'll fix this after we learn the userId
-  target: "0x0000000000000000000000000000000000000000",
-  value: 0n,
-  data: "0x",
-  nonce: 0n,
-  deadline: BigInt(Math.floor(Date.now() / 1000) + 600),
-  returnTo: window.location.origin + "/",
-});
-window.location.href = flow.redirectUrl;
+const sub = jwtSub(idToken);                              // the `sub` claim
+const canonical = await factory.read.predictAddress([sub]);
+if (twin.toLowerCase() !== canonical.toLowerCase()) reject("twin_not_canonical");
+// simulate, cap gas, then submit from the relayer key
 ```
 
-After the redirect, the attestation contains the user_id even if the attestation itself can't be used onchain (it's bound to a placeholder action). Use it just to learn the user_id, then prompt the user to compose a real call.
+The owner path (`executeAsOwner`) is `onlyOwner` and so is **not** relayable as-is — sponsor it with a paymaster, or add an EIP-712 + ERC-1271 `executeAsOwnerWithSig` (not in this repo) if you want gasless owner spends.
 
-The cleaner alternative: ask for the Twitch handle directly.
+## 6. Resolve a handle → user_id
 
-### Step 2 — compose the spend
+Server-side via Twitch Helix `GET /helix/users?login=<handle>` with an App Access Token (client-credentials grant). Keep the client secret server-only.
 
-Once you know the user_id and their wallet is connected:
+## Gotchas
 
-```ts
-import { predictTwinAddress, buildSpendFlow, parseReturnFragment, buildExecuteCall } from "@socialtwin/sdk";
-
-const twin = predictTwinAddress({ factory, verifier, userId });
-const nonce = await publicClient.readContract({
-  address: twin, abi: TWIN_ACCOUNT_ABI, functionName: "nonce"
-});
-const deadline = BigInt(Math.floor(Date.now() / 1000) + 600);
-
-const flow = buildSpendFlow(config, {
-  twin,
-  target: userWalletAddress,
-  value: balance,
-  data: "0x",
-  nonce,
-  deadline,
-  returnTo: window.location.origin + "/",
-});
-
-// Optional: deploy the twin if it doesn't exist yet (idempotent).
-if (!await isTwinDeployed(twin)) {
-  await walletClient.writeContract({
-    address: factory, abi: TWIN_FACTORY_ABI,
-    functionName: "deployTwin", args: [userId],
-  });
-}
-
-window.location.href = flow.redirectUrl;
-```
-
-### Step 3 — handle the return
-
-```ts
-const attestation = parseReturnFragment(window.location.hash);
-const call = buildExecuteCall(intent, attestation);
-const txHash = await walletClient.writeContract(call);
-```
-
-That's the whole integration. ~30 lines of code on the recipient side, ~15 on the sender side.
-
-## End-to-end TypeScript example
-
-A minimal recipient page:
-
-```tsx
-"use client";
-import { useState } from "react";
-import { useAccount, useWriteContract, usePublicClient } from "wagmi";
-import {
-  predictTwinAddress,
-  buildSpendFlow,
-  parseReturnFragment,
-  buildExecuteCall,
-  TWIN_ACCOUNT_ABI,
-  TWIN_FACTORY_ABI,
-} from "@socialtwin/sdk";
-
-const CONFIG = {
-  chainId: 8453,
-  factoryAddress: "0x5204a18785ce8ab080B7194A679e5f0605A7b6Ec",
-  verifierAddress: "0xE4CC251864B0271903D458a9F5731D38ed3eeA39",
-  attestorOrigin: "https://attestor.socialtwin.xyz",
-  provider: "twitch",
-};
-
-export default function Page() {
-  const { address } = useAccount();
-  const { writeContractAsync } = useWriteContract();
-  const publicClient = usePublicClient();
-
-  async function withdraw(userId: bigint) {
-    const twin = predictTwinAddress({
-      factory: CONFIG.factoryAddress,
-      verifier: CONFIG.verifierAddress,
-      userId,
-    });
-    const nonce = await publicClient!.readContract({
-      address: twin, abi: TWIN_ACCOUNT_ABI, functionName: "nonce",
-    }) as bigint;
-    const balance = await publicClient!.getBalance({ address: twin });
-    const deadline = BigInt(Math.floor(Date.now() / 1000) + 600);
-
-    const intent = {
-      twin, target: address!, value: balance, data: "0x",
-      nonce, deadline, returnTo: window.location.origin + "/",
-    };
-    const { redirectUrl } = buildSpendFlow(CONFIG, intent);
-    sessionStorage.setItem("st_pending", JSON.stringify(intent, (_, v) =>
-      typeof v === "bigint" ? v.toString() : v
-    ));
-    window.location.href = redirectUrl;
-  }
-
-  // On page load, handle return-from-attestor fragment
-  if (typeof window !== "undefined" && window.location.hash.includes("attestation=")) {
-    const result = parseReturnFragment(window.location.hash);
-    const intent = JSON.parse(sessionStorage.getItem("st_pending")!, (_, v) =>
-      typeof v === "string" && /^\d+$/.test(v) ? BigInt(v) : v
-    );
-    writeContractAsync(buildExecuteCall(intent, result));
-  }
-
-  // ... return JSX
-}
-```
-
-## Multi-instance / multi-attestor
-
-A dApp can support multiple attestors at once — let the user choose, or default to the most reputable. The protocol is permissionless: any signature from any approved-attestor for the configured verifier works.
-
-```ts
-const ATTESTOR_OPTIONS = [
-  { name: "Official", origin: "https://attestor.socialtwin.xyz" },
-  { name: "Community", origin: "https://attestor.community.xyz" },
-  { name: "Self-hosted", origin: "http://localhost:4001" }, // for development
-];
-```
-
-## Don't have an attestor yet?
-
-See [`docs/ATTESTOR_OPERATIONS.md`](./ATTESTOR_OPERATIONS.md) to run your own, or use the reference instance at `https://attestor.socialtwin.xyz` (once deployed — TBD).
+- Re-derive addresses after **any** contract change; cross-check `predictTwinAddress` (offchain) vs `factory.predictAddress` (onchain) before funding.
+- Read through a single RPC / proxy you control — load-balanced public RPCs can return stale `0x` right after a deploy/tx.
+- Version your client-side identity cache so a stale twin address (from an old factory) doesn't trip the relayer's canonical-twin guard.
+- A new `aud` only works after its 2-day timelock; `execute` with an un-allowlisted `aud` reverts `WrongAudience`.
