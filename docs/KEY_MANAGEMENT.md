@@ -96,7 +96,7 @@ The new factory will derive different twin addresses (CREATE2 input changed), so
 Hour 0:  Suspect signal observed (signature rate anomaly, alert from monitoring).
 Hour 0:  Take attestor service offline immediately to prevent further signing.
 Hour 0:  Notify users to STOP DEPOSITING. Post to Twitter, project Discord, etc.
-Hour 1:  Confirm compromise via audit logs (HSM access logs, network egress, suspicious signatures on-chain).
+Hour 1:  Confirm compromise via audit logs (HSM access logs, network egress, suspicious signatures onchain).
 Hour 2:  Generate new key in fresh HSM slot.
 Hour 4:  Deploy new AttestorVerifier with ONLY the new key (omit the compromised one).
 Hour 4:  Deploy new TwinFactory pointing at the new verifier.
@@ -118,7 +118,7 @@ Two architectural choices reduce the impact of a single key compromise:
 
 The attestor signs over a public digest derived from public inputs. Anyone can:
 - Watch the chain for `Executed` events.
-- Recover the signer from the on-chain proof.
+- Recover the signer from the onchain proof.
 - Verify it's in the approved-attestor set.
 - Cross-reference against the attestor's own claim of having signed it.
 

@@ -2,7 +2,7 @@
 
 The definitive answer to: **"If the operator disappears, can users still access their funds?"**
 
-Short answer: **Yes.** The production deployment verifies Twitch identity entirely on-chain. No operator, server, attestor, or off-chain service is required to spend from a twin. The only scenario requiring action is a Twitch signing-key rotation, which is detectable months in advance and has a documented migration path.
+Short answer: **Yes.** The production deployment verifies Twitch identity entirely onchain. No operator, server, attestor, or off-chain service is required to spend from a twin. The only scenario requiring action is a Twitch signing-key rotation, which is detectable months in advance and has a documented migration path.
 
 ## The production spend path
 
@@ -94,7 +94,7 @@ If, despite the watchdog, a user never migrates before Twitch retires the old ke
 
 ## Comparison: what we gave up by choosing pure-JWT over the attestor
 
-| | Pure on-chain JWT (deployed) | Attestor (optional) |
+| | Pure onchain JWT (deployed) | Attestor (optional) |
 |---|---|---|
 | Server required to spend | **None** | Yes — attestor must be live |
 | Funds locked if operator vanishes | **No** | Yes (if key also lost) |
@@ -112,11 +112,11 @@ Even with every operator service dead, a technically-capable user can:
 2. Compute `actionHash = twin.computeActionHash(target, value, data, nonce, deadline)` via any RPC `eth_call`.
 3. Submit `twin.execute(target, value, data, nonce, deadline, iat, jwtBytes)` from any wallet or block explorer.
 
-The `docs/INTEGRATION.md` and `sdk/` make this easy, but they are not *required* — they're conveniences over a fully self-contained on-chain system. Anyone can rebuild the UI from the public ABI.
+The `docs/INTEGRATION.md` and `sdk/` make this easy, but they are not *required* — they're conveniences over a fully self-contained onchain system. Anyone can rebuild the UI from the public ABI.
 
 ## Abandoned-funds rescue (the deliberate, scoped trust)
 
-The community creates coins for streamers; trading fees accrue to a streamer's twin before that streamer has ever connected. If a streamer never shows up, those funds would be stuck forever. To recover genuinely-abandoned value, the factory holds a `rescuer` role that can delegate control of a twin to a designated EOA — but only under tight constraints enforced on-chain:
+The community creates coins for streamers; trading fees accrue to a streamer's twin before that streamer has ever connected. If a streamer never shows up, those funds would be stuck forever. To recover genuinely-abandoned value, the factory holds a `rescuer` role that can delegate control of a twin to a designated EOA — but only under tight constraints enforced onchain:
 
 - **Only if the twin was NEVER activated** — never executed, never set an EOA. The instant a streamer demonstrates control even once, rescue is permanently impossible for that twin (`activated` flag).
 - **Only after `RESCUE_DELAY` (3 months)** from the twin's deployment.
@@ -128,4 +128,4 @@ This is an honest, bounded trust assumption — it exists solely to recover fund
 
 **This is decentralized.** No operator dependency exists in the critical path. The system survives the complete disappearance of its creators. The single caveat — Twitch key rotation — is a fundamental property of delegating identity to Twitch, is historically improbable for `kid="1"`, is detectable months in advance, and has a documented migration path.
 
-This is the maximally-decentralized design achievable for a Twitch-identity-bound smart account. Going further would require Twitch itself to publish on-chain-verifiable key rotation proofs, which is outside anyone's control but Twitch's.
+This is the maximally-decentralized design achievable for a Twitch-identity-bound smart account. Going further would require Twitch itself to publish onchain-verifiable key rotation proofs, which is outside anyone's control but Twitch's.

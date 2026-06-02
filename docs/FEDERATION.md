@@ -89,13 +89,13 @@ Not until production traffic on 1-of-N justifies the operational complexity. The
 ## Other federation models we considered
 
 ### Per-user attestor allowlists
-Each user picks which attestors they trust at twin-creation time. Strictly more flexible but adds significant on-chain state and per-user setup friction. Rejected for v1 because the global approved set is simpler to reason about.
+Each user picks which attestors they trust at twin-creation time. Strictly more flexible but adds significant onchain state and per-user setup friction. Rejected for v1 because the global approved set is simpler to reason about.
 
 ### Slashing
 The attestor stakes ETH; if they sign maliciously, the stake gets slashed. Requires a mechanism to prove "this signature was malicious," which is the hard part (the protocol can't distinguish "attestor signed something the user didn't want" from "attestor signed something the user did want"). Rejected as not currently solvable without external evidence.
 
 ### Reputation-weighted
-Attestors with longer history or larger volume get more weight in some scoring. Off-chain reputation systems are out of scope; the protocol can only know what's on-chain.
+Attestors with longer history or larger volume get more weight in some scoring. Off-chain reputation systems are out of scope; the protocol can only know what's onchain.
 
 ## Recommendation
 

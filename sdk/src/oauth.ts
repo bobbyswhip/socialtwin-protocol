@@ -13,7 +13,7 @@ export function buildSpendFlow(cfg: SocialTwinConfig, intent: SpendIntent): Spen
   const actionHash = computeActionHash({
     chainId: BigInt(cfg.chainId),
     twin: intent.twin,
-    userId: 0n, // userId is bound implicitly through the twin's immutable userId on-chain
+    userId: 0n, // userId is bound implicitly through the twin's immutable userId onchain
     target: intent.target,
     value: intent.value,
     data: intent.data,

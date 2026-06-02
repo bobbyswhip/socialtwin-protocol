@@ -4,7 +4,7 @@ How to build a dApp that uses the SocialTwin protocol — either as a sender (pa
 
 ## Sender integration
 
-Senders need exactly one thing: the recipient's Twitch user_id. From it they derive the twin address with no on-chain reads.
+Senders need exactly one thing: the recipient's Twitch user_id. From it they derive the twin address with no onchain reads.
 
 ### Step 1 — resolve handle to user_id
 
@@ -72,7 +72,7 @@ const flow = sdk.startSpend({
 window.location.href = flow.redirectUrl;
 ```
 
-After the redirect, the attestation contains the user_id even if the attestation itself can't be used on-chain (it's bound to a placeholder action). Use it just to learn the user_id, then prompt the user to compose a real call.
+After the redirect, the attestation contains the user_id even if the attestation itself can't be used onchain (it's bound to a placeholder action). Use it just to learn the user_id, then prompt the user to compose a real call.
 
 The cleaner alternative: ask for the Twitch handle directly.
 

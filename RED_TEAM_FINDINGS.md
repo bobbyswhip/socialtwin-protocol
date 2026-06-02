@@ -4,7 +4,7 @@ Scope: `contracts/TwitchJWTVerifier.sol`, `contracts/TwinAccount.sol`, `contract
 `claim-site/app/api/relay/route.ts`. Goal was attack vectors NOT already covered by the existing
 test suites (`RedTeam.test.ts`, `TwitchJWTVerifier.test.ts`, `TwinV2Features.test.ts`, `E2EJourney.test.ts`).
 
-Bottom line: the **on-chain contracts are solid** — I could not break the JWT verifier, the action-hash
+Bottom line: the **onchain contracts are solid** — I could not break the JWT verifier, the action-hash
 binding, the nonce/replay model, the PKCS#1 check, or the rescue gating. The **relayer endpoint has one real
 Critical flaw** (no factory allowlist on the `twin` address) plus a couple of supporting Medium/Low issues.
 Severities below are honest; I have not inflated anything.
@@ -30,7 +30,7 @@ itself and simply ignores the JWT.
 1. Attacker deploys a contract `Sink` on Base with a function
    `execute(address,uint256,bytes,uint256,uint256,uint256,bytes) returns (bytes)` that does heavy work
    (e.g. a `for` loop spinning until near the gas limit, or many `SSTORE`s) and then returns `0x`.
-   It does **not** revert, so it succeeds identically under `eth_call` and on-chain.
+   It does **not** revert, so it succeeds identically under `eth_call` and onchain.
 2. Attacker POSTs `{ method:"execute", twin: <Sink>, target:"0x..00", value:"0", data:"0x", nonce:"0",
    deadline:"0", oauthExchangeEpoch:"0", jwt:"0x00" }`. All shape checks pass (`isHex("0x00")` is true).
 3. `simulateContract` runs `Sink.execute(...)` via eth_call → returns success (no revert) → the "we never pay
@@ -77,10 +77,10 @@ hostile contract address to the relayer, and the relayer has no unit tests at al
 
 `simulateContract` (eth_call at the latest block) and `writeContract` are two separate RPC round-trips, and the
 fallback transport may even route them to **different nodes** at **different block heights**. Between them, state
-can change so that the simulated success becomes an on-chain revert that the relayer still pays gas for:
+can change so that the simulated success becomes an onchain revert that the relayer still pays gas for:
 - A legitimate `execute` simulates against `nonce = N`. Another relayed (or direct) tx consumes `nonce N` first.
   The submitted tx now reverts with `WrongNonce` — relayer pays the base/intrinsic gas of a reverting tx.
-- The malicious-twin variant of C-1 can be made to **succeed in eth_call but revert on-chain** (e.g. branch on
+- The malicious-twin variant of C-1 can be made to **succeed in eth_call but revert onchain** (e.g. branch on
   `block.number`/`gasleft()` differences between simulation and mining), again forcing the relayer to pay for a
   revert.
 
@@ -127,7 +127,7 @@ applies to never-activated twins). This is by design and acceptable; flagged as 
 explicit that "activated" is a one-way latch that disables rescue, and a user who activates-then-loses-keys with
 no `ownerEOA` set has unrecoverable funds. Consider documenting this in user-facing copy.
 
-### L-2 — `value` parameter trust in the relayer is fine on-chain but unvalidated in the route
+### L-2 — `value` parameter trust in the relayer is fine onchain but unvalidated in the route
 **Location:** `route.ts` line 98 (`BigInt(value)`).
 
 `value` is `BigInt(value)` with no validation; a non-numeric `value` throws and is caught as `bad_args` (fine),
@@ -222,9 +222,9 @@ and the constructor takes no caller-controlled input. The deployer/relayer of a 
 
 ## Remediation status (applied 2026-06-02)
 
-- **C-1 (Critical) — FIXED & VERIFIED.** `claim-site/app/api/relay/route.ts` now derives `sub` from the JWT and requires `twin == factory.predictAddress(sub)` before doing anything. An arbitrary/attacker contract address can't equal `predictAddress(sub)` (CREATE2 preimage), so the relayer only ever calls canonical factory twins. Verified: attacker address `0x…dEaD` → HTTP 403 `twin_not_canonical`; canonical twin → passes guard, reaches on-chain verification. Also added: JWT length cap (`MAX_JWT_HEX_LEN`), per-tx gas cap (`MAX_GAS = 3M`, submit uses estimateGas×1.2), so a single relayed call can't burn unbounded gas.
+- **C-1 (Critical) — FIXED & VERIFIED.** `claim-site/app/api/relay/route.ts` now derives `sub` from the JWT and requires `twin == factory.predictAddress(sub)` before doing anything. An arbitrary/attacker contract address can't equal `predictAddress(sub)` (CREATE2 preimage), so the relayer only ever calls canonical factory twins. Verified: attacker address `0x…dEaD` → HTTP 403 `twin_not_canonical`; canonical twin → passes guard, reaches onchain verification. Also added: JWT length cap (`MAX_JWT_HEX_LEN`), per-tx gas cap (`MAX_GAS = 3M`, submit uses estimateGas×1.2), so a single relayed call can't burn unbounded gas.
 - **M-1 (TOCTOU) — mitigated/accepted.** With C-1 in place, the only relayable calls are real twins executing real JWT-authorized actions; a simulate→submit race can at most waste one tx's gas (~$0.02) if someone front-runs the nonce. Bounded; acceptable. Gas cap limits the per-tx exposure.
 - **M-2 (log flooding / token leak) — FIXED.** JWT length is capped before any processing, and the diagnostic log no longer dumps the full token/claims — only a truncated revert reason + twin/method/sub.
 - **L-1 (activated latch) — documented.** Behavior is intended (activation permanently disables abandoned-rescue, and is only reachable with a valid JWT for that user). A user who activates, never connects an escape EOA, and loses Twitch access has unrecoverable funds — same fate as losing a wallet key; surfaced in PERMANENCE.md.
 
-**On-chain contracts: no findings — clean.** 100/100 tests pass incl. the 22-vector RedTeam suite.
+**Onchain contracts: no findings — clean.** 100/100 tests pass incl. the 22-vector RedTeam suite.

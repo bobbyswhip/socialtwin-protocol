@@ -4,7 +4,7 @@ pragma solidity 0.8.24;
 import {IVerifier} from "./interfaces/IVerifier.sol";
 
 /// @title TwitchJWTVerifier
-/// @notice Verifies a Twitch OpenID Connect id_token entirely on-chain.
+/// @notice Verifies a Twitch OpenID Connect id_token entirely onchain.
 ///
 /// The id_token is an RS256-signed JWT issued by id.twitch.tv. We verify
 /// the RSA signature using the modexp precompile against Twitch's published

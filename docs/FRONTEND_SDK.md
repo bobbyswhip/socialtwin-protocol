@@ -68,7 +68,7 @@ export function ClaimPage({ userId }: { userId: bigint }) {
     const intent: SpendIntent = JSON.parse(intentRaw, bigJsonReviver);
     sessionStorage.removeItem("st_pending_intent");
     window.history.replaceState({}, "", window.location.pathname);
-    setStatus("Submitting on-chain…");
+    setStatus("Submitting onchain…");
     writeContractAsync(buildExecuteCall(intent, result))
       .then((hash) => setStatus(`✓ submitted: ${hash}`))
       .catch((e) => setStatus(`✗ ${e.message}`));
@@ -167,7 +167,7 @@ The attestor and contract have no way to know if your UX is honest. Build your c
 
 ## Reading the twin's state without spending
 
-You don't need an attestation to read state — only to spend. Twin balances are just on-chain balances:
+You don't need an attestation to read state — only to spend. Twin balances are just onchain balances:
 
 ```ts
 const balance = await publicClient.getBalance({ address: twin });

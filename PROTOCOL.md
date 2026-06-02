@@ -81,7 +81,7 @@ digest = keccak256(abi.encode(
 
 The attestor then signs `MessageHashUtils.toEthSignedMessageHash(digest)` — i.e., applies the EIP-191 personal_sign prefix. Reference: `contracts/AttestorVerifier.sol::computeDigest`, `attestor/src/signer.ts::computeDigest`.
 
-`oauthExchangeEpoch` is the unix timestamp (seconds) at which the attestor finished verifying the IdP id_token. The on-chain `TwinAccount.execute` enforces:
+`oauthExchangeEpoch` is the unix timestamp (seconds) at which the attestor finished verifying the IdP id_token. The onchain `TwinAccount.execute` enforces:
 
 ```
 block.timestamp <= oauthExchangeEpoch + 5 minutes        // freshness

@@ -18,7 +18,7 @@ One page on how the pieces fit. For wire formats see [`PROTOCOL.md`](./PROTOCOL.
 
 The sender side requires **zero** participation from the attestor or recipient. The sender just needs to know the recipient's Twitch user_id (resolvable from the handle via the public Twitch Helix API).
 
-## On-chain pieces
+## Onchain pieces
 
 | Contract | Role |
 |---|---|
@@ -35,7 +35,7 @@ The factory and verifier are deployed once and immutable. There are no admin fun
 |---|---|
 | Attestor backend | Hosts the OAuth flow with the IdP, verifies the id_token signature, and ECDSA-signs the canonical digest. One private key, kept secret. |
 | Sender SDK | Predicts twin addresses off-chain so apps can route funds without RPC reads. |
-| Recipient SDK | Builds the attestor redirect, parses the returned attestation, encodes the on-chain call. |
+| Recipient SDK | Builds the attestor redirect, parses the returned attestation, encodes the onchain call. |
 
 ## A single end-to-end transaction
 
@@ -90,11 +90,11 @@ The factory and verifier are deployed once and immutable. There are no admin fun
 
 ## What changes if you change the IdP
 
-Only the attestor backend needs to know about the IdP. The on-chain code never sees IdP-specific data — it only sees a `userId` and an attestor signature. So adding Google or Discord is purely a backend change: add a new provider to `attestor/src/providers/` and re-deploy that service. The on-chain contracts are unchanged.
+Only the attestor backend needs to know about the IdP. The onchain code never sees IdP-specific data — it only sees a `userId` and an attestor signature. So adding Google or Discord is purely a backend change: add a new provider to `attestor/src/providers/` and re-deploy that service. The onchain contracts are unchanged.
 
-This is the central reason the architecture chose backend attestation over on-chain JWT verification.
+This is the central reason the architecture chose backend attestation over onchain JWT verification.
 
-## Deployed default: on-chain JWT verification
+## Deployed default: onchain JWT verification
 
 The Base mainnet deployment uses `TwitchJWTVerifier`, which verifies Twitch's RSA-2048 signed id_token entirely in Solidity. This is the **permanent, operator-free** path: no server sits between the user and their funds. See [`PERMANENCE.md`](./PERMANENCE.md).
 

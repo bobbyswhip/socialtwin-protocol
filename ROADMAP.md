@@ -29,7 +29,7 @@
 
 ## Considered and dropped
 
-- **Pure on-chain ZK-TLS verification** (the original `TwitchJWTVerifier` path). Kept in the repo as a comparison artifact; not the recommended default because of the gas/audit-surface cost. See `docs/COMPARISON.md`.
+- **Pure onchain ZK-TLS verification** (the original `TwitchJWTVerifier` path). Kept in the repo as a comparison artifact; not the recommended default because of the gas/audit-surface cost. See `docs/COMPARISON.md`.
 - **Reclaim Protocol as the attestation layer.** Adds a third-party dependency that was the original reason the project moved off it. The attestor backend keeps the same trust shape without the external protocol.
 - **Per-app session keys.** Considered for caching JWT-based authorization across multiple calls; rejected because it weakens the per-action binding that makes phishing resistance possible.
 - **Recovery via social guardians.** Adds protocol complexity for a problem the IdP already solves (Twitch account recovery is Twitch's job).

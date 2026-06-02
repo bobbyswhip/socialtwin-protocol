@@ -24,7 +24,7 @@ export interface SpendIntent {
   value: bigint;
   /** Call data (0x for plain ETH transfer). */
   data: Hex;
-  /** Current twin nonce (read on-chain before redirecting). */
+  /** Current twin nonce (read onchain before redirecting). */
   nonce: bigint;
   /** Unix seconds after which the call is invalid. */
   deadline: bigint;

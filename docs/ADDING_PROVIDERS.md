@@ -1,6 +1,6 @@
 # Adding identity providers
 
-The protocol is IdP-agnostic. The on-chain contracts (`TwinFactory`, `TwinAccount`, `AttestorVerifier`) don't know anything about Twitch — they just verify an ECDSA signature over `(userId, actionHash, oauthExchangeEpoch)`. Everything IdP-specific lives in the attestor backend.
+The protocol is IdP-agnostic. The onchain contracts (`TwinFactory`, `TwinAccount`, `AttestorVerifier`) don't know anything about Twitch — they just verify an ECDSA signature over `(userId, actionHash, oauthExchangeEpoch)`. Everything IdP-specific lives in the attestor backend.
 
 To add a new provider, you implement the `IdentityProvider` interface in [`attestor/src/providers/provider.ts`](../attestor/src/providers/provider.ts) and register it in `index.ts`. That's it.
 

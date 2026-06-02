@@ -5,7 +5,7 @@ import { TWIN_ACCOUNT_ABI } from "./abis";
 const EXECUTE_DOMAIN = "TwinAccount:v2:execute";
 
 /**
- * Mirrors `TwinAccount.computeActionHash` on-chain. Used by the SDK
+ * Mirrors `TwinAccount.computeActionHash` onchain. Used by the SDK
  * before redirecting, and by your dApp to confirm the attestor signed
  * exactly the action you intended.
  */

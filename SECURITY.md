@@ -1,6 +1,6 @@
 # Security
 
-This document is the formal threat model. The audit report on the prior on-chain JWT design is preserved at `SECURITY_REVIEW.md`. This file covers the **current attestor-based design** plus residual risk for both.
+This document is the formal threat model. The audit report on the prior onchain JWT design is preserved at `SECURITY_REVIEW.md`. This file covers the **current attestor-based design** plus residual risk for both.
 
 ## Trust roots (and only these)
 

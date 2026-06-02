@@ -9,7 +9,7 @@ Solidity sources for the SocialTwin protocol on Base (and any EVM L2).
 | [`TwinFactory.sol`](./TwinFactory.sol) | CREATE2 factory; predicts and deploys twin addresses |
 | [`TwinAccount.sol`](./TwinAccount.sol) | Per-user smart account; gates `execute()` on an `IVerifier` check |
 | [`AttestorVerifier.sol`](./AttestorVerifier.sol) | **Default verifier.** ECDSA signatures from approved attestor(s) |
-| [`TwitchJWTVerifier.sol`](./TwitchJWTVerifier.sol) | Legacy. On-chain RSA verification of Twitch id_tokens. Kept for adopters who want trust-minimized verification. |
+| [`TwitchJWTVerifier.sol`](./TwitchJWTVerifier.sol) | Legacy. Onchain RSA verification of Twitch id_tokens. Kept for adopters who want trust-minimized verification. |
 | [`interfaces/IVerifier.sol`](./interfaces/IVerifier.sol) | Common verifier interface |
 | [`interfaces/IReclaim.sol`](./interfaces/IReclaim.sol) | Vestigial; remove if you don't need Reclaim compatibility |
 | `mocks/MockVerifier.sol` | Test helper — single-key ECDSA verifier |

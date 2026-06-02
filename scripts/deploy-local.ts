@@ -8,7 +8,7 @@ import * as path from "path";
 // deploy.local.json to (a) talk to the contracts and (b) mint mock-Twitch
 // JWTs signed by the same key the deployed verifier trusts.
 //
-// This exercises the REAL on-chain verification path — only the JWT issuer
+// This exercises the REAL onchain verification path — only the JWT issuer
 // is local instead of id.twitch.tv.
 //
 // Usage:

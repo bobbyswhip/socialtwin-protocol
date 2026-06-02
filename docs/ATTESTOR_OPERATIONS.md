@@ -4,7 +4,7 @@ The attestor is a small Node service that:
 1. Receives a redirect from a dApp.
 2. Drives the OAuth flow with the chosen IdP.
 3. Verifies the resulting id_token.
-4. Signs an ECDSA attestation that the on-chain `AttestorVerifier` accepts.
+4. Signs an ECDSA attestation that the onchain `AttestorVerifier` accepts.
 5. Bounces the user back to the dApp.
 
 Reference implementation at [`../attestor/`](../attestor/).

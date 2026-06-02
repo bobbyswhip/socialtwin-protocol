@@ -3,7 +3,7 @@
 How to deploy the contracts to a new chain or with a new attestor set. The reference instance on Base mainnet is at:
 
 - `TwinFactory` — `0x5204a18785ce8ab080B7194A679e5f0605A7b6Ec`
-- `TwitchJWTVerifier` (legacy on-chain JWT) — `0xE4CC251864B0271903D458a9F5731D38ed3eeA39`
+- `TwitchJWTVerifier` (legacy onchain JWT) — `0xE4CC251864B0271903D458a9F5731D38ed3eeA39`
 
 For the new attestor-based path, you'll deploy your own `AttestorVerifier` and a new `TwinFactory` pointing at it.
 
@@ -84,7 +84,7 @@ See [`ATTESTOR_OPERATIONS.md`](./ATTESTOR_OPERATIONS.md). Make sure `ATTESTOR_PR
 # 2. Predict her twin address with predictTwinAddress()
 # 3. Send 0.0001 ETH to that address from any wallet
 # 4. Connect Alice's wallet to your dApp
-# 5. Click "Withdraw" → goes through your attestor → executes on-chain
+# 5. Click "Withdraw" → goes through your attestor → executes onchain
 # 6. Verify the funds land in Alice's wallet
 ```
 
@@ -106,7 +106,7 @@ Effectively free at Base prices.
 | Add a new approved attestor | `AttestorVerifier` (immutable allowlist) + new `TwinFactory` (since twin addresses depend on verifier) |
 | Rotate the attestor key | `AttestorVerifier` + new `TwinFactory` |
 | Change `MAX_PROOF_AGE` or `MAX_CLOCK_SKEW` | `TwinAccount` constants → new TwinAccount bytecode → new TwinFactory |
-| Add a new IdP | **Nothing on-chain** — purely an attestor backend change |
+| Add a new IdP | **Nothing onchain** — purely an attestor backend change |
 | Change salt domain (`"SocialTwin:twitch:v1"` → `"SocialTwin:google:v1"`) | New `TwinFactory` (different address space) |
 
 Twin addresses are stable as long as the factory and verifier addresses don't change. Migrations require a coordinated "withdraw from old, deposit into new" flow.

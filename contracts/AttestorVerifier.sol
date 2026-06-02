@@ -20,7 +20,7 @@ import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/Messa
 ///      the immutable approved set.
 ///
 /// Same trust shape as the Base–Solana bridge guardians or LayerZero DVNs.
-/// No on-chain JWT/RSA verification; gas is ~30k per check.
+/// No onchain JWT/RSA verification; gas is ~30k per check.
 ///
 /// Federation
 /// ──────────

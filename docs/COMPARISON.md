@@ -2,7 +2,7 @@
 
 This protocol sits in a design space crowded with related projects. Here's how the choices we made differ from the alternatives.
 
-## Within this repo: attestor vs. on-chain JWT
+## Within this repo: attestor vs. onchain JWT
 
 Two verifier implementations live in `contracts/`:
 
@@ -12,19 +12,19 @@ Two verifier implementations live in `contracts/`:
 | Gas per `verify()` | ~30k | ~700k |
 | Solidity lines | ~80 | ~280 |
 | Trust roots | Twitch + attestor | Twitch only |
-| Adding a new IdP | Backend change, no redeploy | New on-chain verifier per IdP |
+| Adding a new IdP | Backend change, no redeploy | New onchain verifier per IdP |
 | Operational requirement | Attestor service must be running | None |
 | Key rotation | New verifier deploy (old/new in approved set during overlap) | New verifier deploy (with new modulus) |
 | Best fit | Most use cases | High-value deployments needing trust minimization |
 
-**The on-chain JWT verifier is the deployed default**, chosen for permanence: no operator sits in the spend path, so funds can never be locked by an operator disappearing (see [`../PERMANENCE.md`](../PERMANENCE.md)). The attestor model remains in the repo as a fully-functional opt-in for adopters who prioritize cheap gas and accept operator-dependency. They share the `IVerifier` interface, so the twin contracts are identical regardless of which verifier you bind to.
+**The onchain JWT verifier is the deployed default**, chosen for permanence: no operator sits in the spend path, so funds can never be locked by an operator disappearing (see [`../PERMANENCE.md`](../PERMANENCE.md)). The attestor model remains in the repo as a fully-functional opt-in for adopters who prioritize cheap gas and accept operator-dependency. They share the `IVerifier` interface, so the twin contracts are identical regardless of which verifier you bind to.
 
 ## vs. Reclaim Protocol
 
-[Reclaim](https://reclaimprotocol.org) provides ZK-TLS proofs of arbitrary HTTPS responses, verifiable on-chain. Their model:
+[Reclaim](https://reclaimprotocol.org) provides ZK-TLS proofs of arbitrary HTTPS responses, verifiable onchain. Their model:
 
 ```
-User → Twitch (HTTPS) ← Reclaim witnesses (ZK-TLS) → ZK proof → on-chain verifier
+User → Twitch (HTTPS) ← Reclaim witnesses (ZK-TLS) → ZK proof → onchain verifier
 ```
 
 |  | Reclaim | SocialTwin (attestor) |
@@ -58,7 +58,7 @@ SocialTwin's design is much closer to a DVN-style configurable set than to Wormh
 |---|---|---|
 | Identity provider | Any OIDC (Google, Facebook, etc.) | Any OIDC (Twitch by default) |
 | Chain | Sui | Any EVM (Base by default) |
-| On-chain verification | ZK proof of JWT | ECDSA from attestor (or RSA from IdP in legacy mode) |
+| Onchain verification | ZK proof of JWT | ECDSA from attestor (or RSA from IdP in legacy mode) |
 | Per-tx gas | Sui-specific | ~30k EVM (attestor) or ~700k EVM (JWT) |
 | External infrastructure | Sui's prover service | Your attestor service |
 
@@ -76,7 +76,7 @@ ERC-4337 smart accounts authenticated by WebAuthn passkeys (Coinbase Smart Walle
 | Setup required before receiving | Yes (create the wallet) | No |
 | Per-tx auth | Biometric | OAuth + (optionally) wallet biometric |
 
-These solve different problems. CBSW is "personal smart wallet"; SocialTwin is "social handle as on-chain destination." A user could have both: their twin receives, and they spend FROM the twin via CBSW signatures using the attestor as identity attestor.
+These solve different problems. CBSW is "personal smart wallet"; SocialTwin is "social handle as onchain destination." A user could have both: their twin receives, and they spend FROM the twin via CBSW signatures using the attestor as identity attestor.
 
 ## vs. ENS
 
@@ -103,7 +103,7 @@ ENS requires the recipient to set up. SocialTwin doesn't. ENS is general-purpose
 | External dependency | The Lit network | Your attestor |
 | Setup required | Mint the PKP, define access conditions | None for receive; one-time attestor visit for spend |
 
-Lit's model is "keys managed by an external network." SocialTwin's is "smart contract authorized by an external attestor." Different shapes, comparable risk profiles. SocialTwin keeps more on-chain explicitness — the verifier and the approved attestor list are both publicly inspectable bytecode/storage.
+Lit's model is "keys managed by an external network." SocialTwin's is "smart contract authorized by an external attestor." Different shapes, comparable risk profiles. SocialTwin keeps more onchain explicitness — the verifier and the approved attestor list are both publicly inspectable bytecode/storage.
 
 ## Where SocialTwin is unique
 

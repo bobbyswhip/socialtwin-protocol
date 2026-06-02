@@ -22,7 +22,7 @@ Adopter, operator, and contributor documentation.
 - [`FEDERATION.md`](./FEDERATION.md) — 1-of-N today, N-of-M roadmap
 - [`COMPARISON.md`](./COMPARISON.md) — vs. Reclaim, Wormhole, zkLogin, AA+passkey, ENS, Lit
 - [`../SECURITY.md`](../SECURITY.md) — formal threat model
-- [`../SECURITY_REVIEW.md`](../SECURITY_REVIEW.md) — audit report (prior on-chain JWT design)
+- [`../SECURITY_REVIEW.md`](../SECURITY_REVIEW.md) — audit report (prior onchain JWT design)
 
 ## For maintainers (this repo)
 

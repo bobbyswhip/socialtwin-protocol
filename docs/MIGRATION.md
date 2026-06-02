@@ -2,7 +2,7 @@
 
 How to move from one deployed instance to another. Covers:
 
-1. Migrating users from the on-chain JWT verifier to the attestor verifier.
+1. Migrating users from the onchain JWT verifier to the attestor verifier.
 2. Migrating users to a new factory after a key rotation.
 3. Adapting a deployed fork to a new identity provider.
 
@@ -25,11 +25,11 @@ T=0+1d   Notify users: "Your new twin address is X. Old twin Y still works for
          spending only. Senders, please update to the new address."
 T=0+7d   Most senders have updated; new deposits flow to the new factory's twins.
 T=0+30d  Users with funds in old twins spend them down. Final reminder.
-T=0+60d  Old factory marked as deprecated. Old twins still work (no on-chain
+T=0+60d  Old factory marked as deprecated. Old twins still work (no onchain
          change), but the user-facing UI no longer prompts them.
 ```
 
-There is no on-chain migration. Each twin is independent and immutable. Users physically move funds from old to new.
+There is no onchain migration. Each twin is independent and immutable. Users physically move funds from old to new.
 
 ### Tools for users
 
