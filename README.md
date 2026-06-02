@@ -34,8 +34,6 @@ The post-audit stack: intent-based rescue + timelocked aud allowlist (v1.1), one
 
 Source-verified. Salt domain: `"SocialTwin:twitch:v2"`. Twitch issuer `https://id.twitch.tv/oauth2`, signing key `kid="1"`. Sample twin (`yougotcoined`): [`0xcBeaF766D4a7DD61558d4E80ee58B8B8379d4CEf`](https://basescan.org/address/0xcBeaF766D4a7DD61558d4E80ee58B8B8379d4CEf).
 
-> **Deprecated (do not use):** v1.0 factory `0x942C…`/verifier `0xF1Ff…`, v1.1 factory `0x4318…`, v1.2 factory `0xe717…`/verifier `0xEaD1…`, and the initial v1.3 deploy factory `0x51205c…`/verifier `0xF7E1BF…` (superseded — guardian/keyAdmin roles corrected). Funds in old twins remain controlled by their respective contracts; new integrations must use the v1.3 addresses above.
-
 ---
 
 ## How it works
