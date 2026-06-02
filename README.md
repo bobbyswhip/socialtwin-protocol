@@ -4,7 +4,7 @@
 
 SocialTwin gives every Twitch account a deterministic smart-contract wallet (a "twin") whose address is derived purely from the Twitch numeric `user_id`. Anyone can send funds to a streamer by their Twitch identity — community-coin trading fees, tips, rewards — **before that streamer has ever connected a wallet, signed a transaction, or even heard of the protocol**. The streamer later claims and controls the twin by signing in with Twitch, with the login proof **verified entirely onchain**. There is no oracle, no witness network, and no off-chain protocol in the trust path.
 
-> **Status:** Live on Base mainnet (**v1.3**, post-audit — Basescan-verified). Reviewed by Sterling Crispin; all findings addressed — see [`AUDIT_RESPONSE.md`](AUDIT_RESPONSE.md). v1.2 added **one-way self-custody** (linking a wallet permanently disables the Twitch path for that twin); v1.3 adds **timelocked signing-key rotation** so a Twitch key rotation can never permanently lock funds. 84 tests. **Still recommend a full external audit of the JWT verifier before routing large value.**
+> **Status:** Live on Base mainnet (**v1.3**), Basescan-verified. Security rests on the design itself — deterministic addresses, fully onchain JWT verification, **one-way self-custody** (linking a wallet permanently disables the Twitch path for that twin), and **timelocked signing-key rotation** (a Twitch key rotation can't permanently lock funds) — backed by 84 tests including 22+ adversarial vectors and a parser fuzz suite. Findings from internal red-teaming and an external review are addressed in [`AUDIT_RESPONSE.md`](AUDIT_RESPONSE.md). **Not yet formally audited — commission a full external audit of the JWT verifier before routing large value.**
 
 ---
 
@@ -23,7 +23,7 @@ The result: fund-by-identity with self-custody guarantees, no trusted relayer in
 
 ## Live deployment — v1.3 (Base mainnet · chainId 8453)
 
-The post-audit stack: intent-based rescue + timelocked aud allowlist (v1.1), one-way self-custody (v1.2), timelocked signing-key rotation (v1.3). Source-verified on Basescan.
+The current stack: intent-based rescue + timelocked aud allowlist (v1.1), one-way self-custody (v1.2), timelocked signing-key rotation (v1.3). Source-verified on Basescan.
 
 | Contract | Address | Role |
 |---|---|---|
