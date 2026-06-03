@@ -63,3 +63,4 @@ handling. See [`ARCHITECTURE.md`](./ARCHITECTURE.md) §"x402 path".
 | Launch price | `1_000_000` USDC units = **$1.00** |
 | Twitch app client_id (resolver) | `epeocrogq8bm1af0lngd9e2rfvrwk1` |
 | Streamer-coin launch contract | `pairable_v1.sol` family (repo naming convention) |
+| Resource-server API host | **`https://api.waifi.app`** (routes under `/v1/st`) |

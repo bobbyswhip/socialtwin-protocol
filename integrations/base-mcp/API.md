@@ -4,7 +4,9 @@
 > existing wolverine backend (EC2), namespaced under `/v1/st/` (SocialTwin). "stop using mock data
 > for routes" applies — every route below reads real Twitch + on-chain data.
 
-Base URL (staging): `https://<wolverine-host>/v1/st` on Base Sepolia first.
+Base URL: **`https://api.waifi.app/v1/st`** (production). Staging runs the same routes against Base
+Sepolia first — a separate host/path (e.g. `staging-api.waifi.app` or a `?network=sepolia` config),
+TBD, kept unadvertised until cutover.
 
 ---
 

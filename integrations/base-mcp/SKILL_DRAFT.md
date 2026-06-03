@@ -25,7 +25,7 @@ Three things: **resolve** a Twitch handle to its twin, **tip** a streamer, **lau
 ## Detection
 - Confirm Base MCP is connected: the tools `get_wallets`, `send`, and `web_request` must be advertised.
   If not, tell the user to add the Base MCP connector (`https://mcp.base.org`) and stop.
-- Base URL for SocialTwin endpoints: `{{SOCIALTWIN_API}}` (default `https://api.socialtwin.example/v1/st`).
+- Base URL for SocialTwin endpoints: `{{SOCIALTWIN_API}}` (default `https://api.waifi.app/v1/st`).
 
 ## Onboarding (once per session, before the first action)
 > [!IMPORTANT]
