@@ -8,6 +8,7 @@ Adopter and operator guides. Start at the root [`README.md`](../README.md) for w
 
 ## Run / deploy it
 - [`DEPLOYMENT.md`](./DEPLOYMENT.md) — deploy + verify the stack; what to do after a contract change
+- [`VERIFICATION.md`](./VERIFICATION.md) — (re)verify any contract on Basescan, incl. the per-twin case that doesn't auto-verify on deploy
 - [`../monitoring/`](../monitoring/) — the JWKS watchdog: run on a schedule to catch a Twitch key rotation (and a malicious queued key) within the timelock window
 
 ## Understand / evaluate it
