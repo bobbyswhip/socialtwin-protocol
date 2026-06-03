@@ -3,12 +3,19 @@
 > Design only. Phases are sequenced so we can validate the riskiest unknown (x402 path) before
 > committing build effort, and so nothing touches mainnet or any public registry until cutover.
 
+## Status update
+
+The **skill is already shipped and public** — `yougotcoined` in
+[`bobbyswhip/skills`](https://github.com/bobbyswhip/skills). So the Skill workstream is done and the
+old "secrecy first / no public skill until cutover" constraint no longer applies. The **remaining
+work is the `api.waifi.app/v1/st` backend** (`/resolve`, `/launch` x402, `/health`) per
+[`API.md`](./API.md), plus the launcher wiring. The phases below are kept as the backend build/test
+sequence; ignore the secrecy gating.
+
 ## Guiding constraints
 
-- **Secrecy first.** No public skill, no npm publish, no Base skills-registry listing, no mainnet
-  endpoints, no announcements until §Cutover. Build and demo on **Base Sepolia** only.
 - **Reuse, don't rebuild.** Tips ride Base MCP's `send`; resolution rides `predictAddress`; launch
-  reuses the existing `pairable_v1` launcher. The only new surface is two backend routes + one skill.
+  reuses the existing `pairable_v1` launcher. The only new surface is the backend routes.
 - **No fund custody.** Validated at every step (see [`ARCHITECTURE.md`](./ARCHITECTURE.md) §Security).
 
 ## Phase 0 — Validate the unknowns (no code that ships)

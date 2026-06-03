@@ -1,9 +1,12 @@
-# SocialTwin × Base MCP — Integration (DESIGN ONLY)
+# SocialTwin × Base MCP — Integration
 
-> **Status: 🔒 Internal design. NOT built, NOT deployed, NOT published.**
-> This folder is the implementation plan only. Nothing here is live. Do not publish the
-> skill to npm / the Base skills registry, and do not advertise the resource server, until
-> we explicitly cut over (see [`IMPLEMENTATION_PLAN.md`](./IMPLEMENTATION_PLAN.md) §Secrecy & staging).
+> **Status: 🟢 Skill SHIPPED · backend in progress.**
+> The Base MCP skill is **live and public**: [`bobbyswhip/skills`](https://github.com/bobbyswhip/skills),
+> install with `npx skills add bobbyswhip/skills --skill yougotcoined`. The skill is named
+> **`yougotcoined`** and orchestrates the three capabilities below. This folder is now the
+> **server-side spec + architecture record**; the remaining build is the `api.waifi.app/v1/st`
+> backend ([`API.md`](./API.md)). The earlier "keep secret until cutover" framing is obsolete — the
+> skill is already published.
 
 ## What we're building
 

@@ -1,9 +1,9 @@
-# SKILL_DRAFT — the Base MCP skill we'd ship
+# SKILL_DRAFT — superseded by the live skill
 
-> Draft of the actual skill artifact, following Base MCP's skill conventions (frontmatter +
-> sections: Description, Detection, Onboarding, Tools, Plugins, Installation; lazy loading;
-> "local-first, web-fallback" reference loading via `web_request`). This is the file a user would
-> install into Base MCP. **Do not publish until cutover.**
+> **This draft is historical.** The skill is shipped and public as **`yougotcoined`** in
+> [`bobbyswhip/skills`](https://github.com/bobbyswhip/skills) (`skills/yougotcoined/SKILL.md` +
+> `plugins/socialtwin.md`), installed with `npx skills add bobbyswhip/skills --skill yougotcoined`.
+> The live version is the source of truth — edit it there, not here. Kept below for design context.
 
 The block below is the candidate `SKILL.md`. Endpoints point at staging until cutover.
 
