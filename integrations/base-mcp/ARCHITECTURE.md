@@ -12,8 +12,9 @@
 │  • SocialTwin Skill (md) │───────▶│  GET  /v1/st/resolve           │
 │  • Base Account wallet   │        │  POST /v1/st/launch  (x402)    │
 │  • tools: get_wallets,   │        │  GET  /v1/st/health            │
-│    send, send_calls,     │        │                                │
-│    web_request, sign     │        │  uses: Twitch Helix API,       │
+│    send, web_request,    │        │                                │
+│    initiate_x402_request,│        │  uses: Twitch Helix API,       │
+│    complete_x402_request │        │                                │
 └───────────┬──────────────┘        │  factory.predictAddress,       │
             │                       │  CDP x402 facilitator,         │
             │  on-chain (Base)      │  pairable_v1 launcher          │
@@ -87,35 +88,42 @@ sequenceDiagram
     participant Fac as CDP facilitator
     participant L as pairable_v1 launcher
     U->>A: "launch a coin for twitch.tv/somestreamer"
-    A->>R: POST /v1/st/launch { login }  (no payment yet)
-    R-->>A: 402 Payment Required + requirements (1 USDC → recipient, eip155:8453, EIP-3009)
-    A->>A: sign EIP-3009 transferWithAuthorization via Base Account
-    A->>R: POST /v1/st/launch { login } + X-PAYMENT header
-    R->>Fac: verify + settle X-PAYMENT
+    A->>A: initiate_x402_request(POST /launch {login}, maxPayment:"1.00")
+    Note over A,R: Base MCP sends the request + reads the 402 challenge
+    A->>R: POST /v1/st/launch { login }
+    R-->>A: 402 + payment requirements ($1 USDC, base)
+    A->>U: approval modal ($1 USDC to launch · requestId)
+    U-->>A: sign payment authorization in Base Account
+    A->>A: complete_x402_request(requestId)
+    Note over A,R: Base MCP replays the request with payment credentials
+    A->>R: POST /v1/st/launch { login } + payment
+    R->>Fac: verify + settle
     Fac-->>R: settled ($1 USDC received)
     R->>L: launch coin for userId (deploy/register pairable_v1)
     L-->>R: coinAddress, tx
-    R-->>A: 200 { coinAddress, tx } + X-PAYMENT-RESPONSE
+    R-->>A: 200 { coinAddress, tx }
     A-->>U: "Launched: 0x… (paid $1 to prevent spam)"
 ```
 
-## x402 path decision (the one real unknown)
+## x402 path — native Base MCP tools (resolved)
 
-x402's "exact" scheme is paid with a signed **EIP-3009 `transferWithAuthorization`** (gasless;
-the facilitator submits it), encoded into the `X-PAYMENT` header — **not** a plain ERC-20
-transfer. So the open question is *who produces that signed authorization in the Base MCP world*:
+Base MCP has **first-class x402 support**, so there is no client-side unknown and no companion
+server needed. Per <https://docs.base.org/ai-agents/guides/x402-payments>, the agent uses a
+two-tool flow and Base MCP handles the entire challenge → sign → replay cycle:
 
-| Path | Description | Pick when |
-|---|---|---|
-| **A — transparent** | Base MCP's client (`web_request` or a built-in x402 capability) follows the 402 itself and signs via Base Account. Skill just calls the endpoint. | Base MCP exposes x402 today. **Preferred.** |
-| **B — skill-orchestrated** | Skill reads the 402, uses Base MCP's typed-data signing tool to sign the EIP-3009 authorization, builds `X-PAYMENT`, retries via `web_request`. | Base MCP can sign arbitrary EIP-712 but doesn't auto-follow 402. |
-| **C — companion plugin** | A small x402-enabled MCP server (cf. Vercel `x402-mcp`) we run, exposing one `socialtwin_launch` tool that does the 402 dance with its own/connected wallet. | A and B both unavailable; or we want full control of Launch. |
+- **`initiate_x402_request(url, method, maxPayment, body?, headers?, agentWalletId?)`** — sends the
+  request and reads the server's 402 payment challenge. `maxPayment` is the human-readable cap
+  (we pass `"1.00"`), so a server can never charge more than the user authorized.
+- **`complete_x402_request(requestId)`** — after the user signs the payment authorization in Base
+  Account, Base MCP replays the original request with payment credentials and returns the response.
 
-**Decision gate:** validate A → else B → else C. This is [`OPEN_QUESTIONS.md`](./OPEN_QUESTIONS.md) Q1
-and **blocks only Launch**. Resolve + Tip ship on the Skill regardless.
+The payment is signed and settled by Base MCP + the facilitator; **the skill never constructs an
+`X-PAYMENT` header, never touches EIP-3009/EIP-712, and never does a manual transfer.** Constraints
+that happen to fit us perfectly: x402 here is **Base / Base Sepolia only** and **USDC only** —
+exactly our $1-USDC-on-Base launch fee. (A non-Base or non-USDC challenge would be rejected by the
+tool, which is fine — ours is neither.)
 
-We do **not** invent a non-standard "pay then send tx hash as proof" path — it breaks x402
-interop and re-introduces the gas/settlement work the facilitator exists to remove.
+The server side is the standard x402 resource server (CDP facilitator); see [`API.md`](./API.md).
 
 ## Security & trust boundaries
 

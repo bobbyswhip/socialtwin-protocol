@@ -50,15 +50,17 @@ Three things: **resolve** a Twitch handle to its twin, **tip** a streamer, **lau
 > raw address from the user as the tip target — always resolve from the Twitch handle.
 
 ### Launch a streamer coin ($1 USDC via x402)
-1. Resolve the handle. Confirm with the user that launching costs **$1 USDC**.
-2. `web_request POST {{SOCIALTWIN_API}}/launch` with body `{ "login": "<handle>" }`.
-3. The endpoint is x402-gated: it will respond `402 Payment Required` with payment requirements.
-   Complete the x402 payment using Base MCP's payment/sign capability (pay exactly $1 USDC on Base
-   to the stated recipient), then retry the request with the payment attached.
-   - If Base MCP cannot drive the x402 flow, STOP and tell the user the launch flow isn't available
-     in this client yet — do not attempt a manual transfer as a substitute.
-4. On `200`, report `coinAddress` and the launch tx. If `alreadyExisted:true`, tell the user the coin
+1. Resolve the handle. Confirm with the user that launching costs **$1 USDC** (anti-spam).
+2. `initiate_x402_request` with:
+   `{ url: "{{SOCIALTWIN_API}}/launch", method: "POST", body: { "login": "<handle>" }, maxPayment: "1.00" }`.
+   Base MCP sends the request and reads the 402 payment challenge.
+3. Present the returned challenge (amount, endpoint) to the user; they sign the payment authorization
+   in Base Account. Then call `complete_x402_request` with the `requestId`. Base MCP replays the
+   request with payment and returns the result.
+4. On success, report `coinAddress` and `launchTx`. If `alreadyExisted:true`, tell the user the coin
    already existed and **no charge** was made.
+> [!IMPORTANT] Never exceed `maxPayment: "1.00"`. If the 402 challenge asks for more than $1, or for a
+> non-Base / non-USDC payment, STOP and report it — do not attempt a manual transfer as a substitute.
 
 ## Plugins
 - None required. This skill rides on Base MCP's native `send` / `web_request` / signing tools.
@@ -76,9 +78,10 @@ Three things: **resolve** a Twitch handle to its twin, **tip** a streamer, **lau
 - **Lazy loading:** keep the skill short; if we add long reference docs (e.g. a launch-params guide),
   put them in sibling files and load via `web_request` only when launching, per Base's pattern.
 - **`{{SOCIALTWIN_API}}` templating:** ship pointing at staging; flip to the mainnet host at cutover.
-- **The x402 step (step 3 of Launch) is deliberately abstract** because the exact mechanism depends on
-  [`OPEN_QUESTIONS.md`](./OPEN_QUESTIONS.md) Q1. Once the path (A/B/C) is decided, rewrite that step
-  concretely (e.g. "use the `pay`/`sign_typed_data` tool with these EIP-3009 fields").
+- **The x402 step uses Base MCP's native `initiate_x402_request` / `complete_x402_request` tools**
+  (per <https://docs.base.org/ai-agents/guides/x402-payments>). Base MCP handles the challenge,
+  signing, and replay; the skill never builds an `X-PAYMENT` header or signs EIP-3009 itself. x402
+  there is Base/Base-Sepolia + USDC only, which matches our $1-USDC-on-Base fee.
 - **Tone/safety:** mirrors Base's skill conventions — explicit disclaimer in Onboarding, approvals via
   Base Account, never handle secrets. Resolve-before-send is enforced in the Tip instructions to stop
   the agent from sending to an arbitrary address.

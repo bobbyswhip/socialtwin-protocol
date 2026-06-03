@@ -1,18 +1,15 @@
 # Open Questions (validate before building)
 
-Answer these in Phase 0. Q1 blocks **Launch only**; Resolve + Tip can proceed in parallel.
+Answer these in Phase 0. (Q1 — the original blocker — is now **answered** by the Base docs.)
 
-## Q1 — How does Base MCP pay an x402 endpoint? **(blocking, Launch)**
-x402 "exact" needs a signed **EIP-3009 `transferWithAuthorization`** in an `X-PAYMENT` header — not a
-plain transfer. Determine which path Base MCP supports today, in priority order:
-- **A (transparent):** `web_request` (or a built-in x402 capability) auto-follows `402` and pays via Base Account.
-- **B (skill-orchestrated):** Base MCP exposes arbitrary EIP-712 / EIP-3009 typed-data signing we can wrap into `X-PAYMENT`.
-- **C (companion plugin):** run a small x402-enabled MCP server (cf. Vercel `x402-mcp`) exposing one `socialtwin_launch` tool.
-
-**Test:** stand up a throwaway Sepolia x402 endpoint ($0.001) and try to pay it from a Base MCP client via A, then B, then C.
-**Output:** pick A/B/C here, then rewrite the Launch step in [`SKILL_DRAFT.md`](./SKILL_DRAFT.md) concretely.
-
-> _Answer:_ _(TBD)_
+## Q1 — How does Base MCP pay an x402 endpoint? ✅ ANSWERED
+**Answer:** Base MCP has native x402 tools — `initiate_x402_request(url, method, maxPayment, body?,
+headers?, agentWalletId?)` then `complete_x402_request(requestId)` — and handles the challenge,
+the Base Account signature, and the replay itself (per
+<https://docs.base.org/ai-agents/guides/x402-payments>). The skill does **not** build an `X-PAYMENT`
+header or sign EIP-3009; it just calls the two tools with `maxPayment:"1.00"`. x402 there is **Base /
+Base Sepolia only** and **USDC only**, which matches our $1-USDC-on-Base launch fee. No companion
+server is needed — Launch is skill-only, like Resolve and Tip. (The earlier A/B/C path tree is moot.)
 
 ## Q2 — Does Base MCP's `send` take a bare address + both assets on Base?
 Confirm `send { to: <0x address>, asset: ETH|USDC, amount, chain: base }` works (not ENS-only), and the

@@ -13,17 +13,16 @@
 
 ## Phase 0 — Validate the unknowns (no code that ships)
 
-Resolve [`OPEN_QUESTIONS.md`](./OPEN_QUESTIONS.md) before building Launch.
+The original blocker (how Base MCP pays x402) is **already answered** by the Base docs: native
+`initiate_x402_request` / `complete_x402_request` tools, Base + USDC only — see
+[`OPEN_QUESTIONS.md`](./OPEN_QUESTIONS.md) Q1. Launch is therefore skill-only like the rest. Remaining
+checks (non-blocking, can run alongside Phase 1):
 
-- **Q1 (blocking, Launch only):** Determine how Base MCP pays x402. Spike each path against a throwaway
-  Sepolia x402 endpoint:
-  - A: does `web_request` (or a built-in capability) follow a `402` and pay via Base Account?
-  - B: can Base MCP sign an arbitrary EIP-712 / EIP-3009 typed message we can wrap into `X-PAYMENT`?
-  - C: stand up a minimal Vercel-`x402-mcp`-style companion server and confirm it pays.
 - **Q2:** Confirm `send` accepts a bare address `to` (not only ENS) and supports both ETH and USDC on Base.
 - **Q3:** Confirm the CDP facilitator covers Base Sepolia for staging, and the mainnet free-tier limit (≈1k/mo) is enough.
+- **Smoke:** pay a throwaway $0.001 Sepolia x402 endpoint via `initiate_x402_request`/`complete_x402_request` from a real Base MCP client to confirm the tool round-trip end to end.
 
-**Exit:** a one-paragraph decision in `OPEN_QUESTIONS.md` picking A/B/C, plus go/no-go on `send` for tips.
+**Exit:** Q2/Q3 answered in `OPEN_QUESTIONS.md`; x402 tool round-trip confirmed on Sepolia.
 
 ## Phase 1 — Resolve (skill + `/resolve`), Sepolia
 
@@ -45,7 +44,7 @@ Resolve [`OPEN_QUESTIONS.md`](./OPEN_QUESTIONS.md) before building Launch.
 - Backend: `POST /v1/st/launch` with x402 middleware (Express/Next pattern), CDP facilitator on Sepolia,
   `payTo` = SocialTwin treasury, `$1` USDC, idempotency table, verify-before-charge, refund queue.
 - Wire to the `pairable_v1` launcher for the resolved `userId`.
-- Skill: Launch section, using the Phase-0 decided x402 path.
+- Skill: Launch section calling `initiate_x402_request` (`maxPayment:"1.00"`) → `complete_x402_request`.
 - **Tests:** 402-then-pay happy path; bad login (no 402); already-launched (200, no charge); verify
   failure; settled-but-launch-reverts → refund record; double-submit replay rejected.
 - **Demo:** "launch a coin for twitch.tv/<handle>" → $1 settles → coin address returned.
@@ -76,8 +75,8 @@ Only after Phases 1–4 are green on Sepolia:
 
 ## Risks (honest)
 
-- **R1 — x402-in-Base-MCP maturity (high/blocking for Launch).** If neither A nor B works, we need the
-  companion server (C), which adds infra and a second connector for users. Resolve+Tip are unaffected.
+- **R1 — x402-in-Base-MCP maturity — RESOLVED.** Base MCP ships native `initiate_x402_request` /
+  `complete_x402_request` (Base + USDC). No companion server, no manual signing. Was the feared blocker; isn't.
 - **R2 — Twitch handle ambiguity.** Renamed/typo'd handles resolve to a different (still valid) twin.
   Mitigation: always echo `displayName`+avatar before any send.
 - **R3 — Facilitator dependency.** Settlement leans on CDP's facilitator (free tier, uptime). Mitigation:

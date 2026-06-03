@@ -29,10 +29,10 @@ instructions that orchestrate Base MCP's existing tools (`get_wallets`, `send`, 
 `web_request`, typed-data signing) plus our HTTP endpoints. We add **zero** wallet/key
 infrastructure and inherit Base Account's approval UX for every value-moving step.
 
-The one place this is uncertain is the **x402 payment path for Launch** — see
-[`ARCHITECTURE.md`](./ARCHITECTURE.md) §"x402 path decision". If Base MCP's client can't drive
-the 402 flow itself, we fall back to a thin companion (a small x402-enabled MCP server / plugin)
-for the Launch tool only. Resolve + Tip are skill-only regardless.
+Launch is skill-only too: Base MCP has **native x402 tools** (`initiate_x402_request` →
+`complete_x402_request`) that drive the whole 402 → sign → replay flow with Base Account, **Base +
+USDC only** — exactly our $1-USDC-on-Base fee. No companion server, no manual `X-PAYMENT`/EIP-3009
+handling. See [`ARCHITECTURE.md`](./ARCHITECTURE.md) §"x402 path".
 
 ## Files in this folder
 
