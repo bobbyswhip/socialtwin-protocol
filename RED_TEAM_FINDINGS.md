@@ -228,3 +228,55 @@ and the constructor takes no caller-controlled input. The deployer/relayer of a 
 - **L-1 (activated latch) — documented.** Behavior is intended (activation permanently disables abandoned-rescue, and is only reachable with a valid JWT for that user). A user who activates, never connects an escape EOA, and loses Twitch access has unrecoverable funds — same fate as losing a wallet key; surfaced in PERMANENCE.md.
 
 **Onchain contracts: no findings — clean.** 100/100 tests pass incl. the 22-vector RedTeam suite.
+
+---
+
+## Live mainnet red-team — v1.3 stack, against a funded twin (2026-06-03)
+
+Unlike the sections above (local hardhat + relayer code review), this round was run **against the live
+Base-mainnet v1.3 deployment**, attacking a **real twin holding real funds**:
+
+- **Target twin:** [`0xcBeaF766D4a7DD61558d4E80ee58B8B8379d4CEf`](https://basescan.org/address/0xcBeaF766D4a7DD61558d4E80ee58B8B8379d4CEf) — Twitch `yougotcoined` (`userId 1507305235`), balance ~`0.0002 ETH`, state at test time: `nonce 0`, `ownerEOA 0x0`, `activated false`, `selfCustody false`.
+- **Verifier:** `0xBDfC552469f11843802BCD7ec9a8372c8020fee8` · **Factory:** `0x260C074c3afDc46A209D4619B5FAdB2964dF9a28`.
+- **Attacker:** a freshly-generated EOA with **no funds and no role** (audAdmin/keyAdmin/guardian/rescuer all held by other addresses).
+- **Method:** each malicious transaction was run as an `eth_call` with `from = attacker` against the live contracts. `eth_call` requires no signature and executes the contract's real logic at head state, so a call that **does not revert** would prove the action is permitted (a real drain path); a revert proves the guard holds. No state was committed; the twin's balance was read before and after and was unchanged.
+
+**Headline attempt — forged, perfectly-formed Twitch token.** I generated my own RSA-2048 keypair, built a JWT with **every claim correct** (`iss=https://id.twitch.tv/oauth2`, `aud=epeocrogq8bm1af0lngd9e2rfvrwk1`, `sub=1507305235`, fresh `iat`, and `nonce = computeActionHash(attacker, fullBalance, …)` read from the twin so the action-hash binding was exact), signed it with my key, and called `execute(...)` to send the whole balance to the attacker. The verifier rejected it with **`BadSignature()`** — the RSA modexp check against Twitch's modulus is the real gate, and forging it requires Twitch's private key. Same token straight to `verifier.verify()` → `BadSignature()`.
+
+### Result: 29 attempts, 0 breaches, funds untouched (0.0002 → 0.0002 ETH)
+
+| # | Attack (as unprivileged attacker) | Live result |
+|---|---|---|
+| A1 | `execute` drain w/ garbage JWT | `BadJwtShape()` |
+| A2 | `execute` drain w/ **forged valid-shape token, attacker RSA key** | **`BadSignature()`** |
+| A2b | `verifier.verify` on the forged token | `BadSignature()` |
+| A3 | `execute` w/ `alg:"none"` confusion | `WrongAlgorithm()` |
+| A4 | `executeBatch` drain w/ garbage JWT | `BadJwtShape()` |
+| A5 | `setOwnerEOA(attacker)` hijack w/ garbage JWT | `BadJwtShape()` |
+| A6 | `execute` w/ wrong nonce (5 vs 0) | `WrongNonce(0,5)` |
+| A7 | `execute` w/ deadline in the past | `DeadlinePassed()` |
+| A8 | `execute` w/ stale proof (`iat` 1h old) | `ProofTooOld()` |
+| A9 | `execute` w/ future proof (`iat` +1h) | `ProofFromFuture()` |
+| A10 | `execute` w/ forged token, unknown `kid=2` | `UnknownKey()` |
+| B1 | `executeAsOwner` drain as non-owner | `NotOwner()` |
+| B2 | `executeBatchAsOwner` drain as non-owner | `NotOwner()` |
+| B3 | `rotateOwnerEOA(attacker)` as non-owner | `NotOwner()` |
+| C1 | `initiateRescue()` as non-rescuer | `NotRescuer()` |
+| C2 | `completeRescue(attacker)` as non-rescuer | `NotRescuer()` |
+| D1 | `queueAud(attacker app)` | `NotAudAdmin()` |
+| D2 | `removeAud(legit client_id)` (grief users) | `NotAudAdmin()` |
+| D3 | `setAudCheckEnabled(false)` (open phishing) | `NotAudAdmin()` |
+| D4 | `lockOpenForever()` | `NotAudAdmin()` |
+| D5 | `transferAudAdmin(attacker)` | `NotAudAdmin()` |
+| D6 | `queueKey(kid=1, attacker modulus)` (inject forging key) | `NotKeyAdmin()` |
+| D7 | `commitKey(1)` | `NotKeyAdmin()` |
+| D8 | `cancelKey(1)` (grief rotation) | `NotGuardianNorKeyAdmin()` |
+| D9 | `transferKeyAdmin(attacker)` | `NotKeyAdmin()` |
+| D10 | `transferGuardian(attacker)` | `NotGuardianNorKeyAdmin()` |
+| E1 | `transferRescuer(attacker)` | `NotRescuer()` |
+| E2 | `deployTwin(99999)` | **did not revert — permissionless by design** |
+| E3 | `deployTwin(1507305235)` (re-deploy/squat) | **did not revert — idempotent no-op** |
+
+**On E2/E3 (the only non-reverting calls).** Deploying twins is intentionally permissionless and **confers no control**: the address is fully determined by `(factory, userId, verifier)`, the constructor takes no caller input, `deployTwin` is idempotent (`if (twin.code.length == 0)`), and there is no `selfdestruct`, so an address can't be vacated and re-squatted. A twin's deployer cannot execute, cannot set an owner, and cannot rescue. With the rescue clock running from `initiateRescue()` intent (not deploy time), pre-deploying a victim's twin gains nothing — this is exactly the v1.1 fix to audit Finding 1, confirmed live.
+
+**Conclusion.** From an unprivileged position, every fund-moving path (JWT execute/batch, owner path), every hijack path (`setOwnerEOA`, `rotateOwnerEOA`), the rescue flow, and every verifier/factory admin function rejected the attacker. The signature/binding/freshness guards fire in the right order (`WrongNonce` → `DeadlinePassed` → `ProofTooOld`/`ProofFromFuture` → `BadSignature`/`WrongAlgorithm`/`UnknownKey`), giving defense-in-depth. The residual risks remain the **documented** ones requiring privileged-key compromise or social engineering (audAdmin/keyAdmin+guardian collusion, phishing a streamer into signing a malicious bound action) — none reachable by an anonymous attacker, and none a contract-level bug. **No onchain findings.**
