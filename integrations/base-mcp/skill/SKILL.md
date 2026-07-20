@@ -30,10 +30,10 @@ https://docs.base.org/ai-agents/quickstart and stop.
 
 If Base MCP tools are available, continue to Onboarding.
 
-Optional liveness check for this skill's API: `web_request GET {base}/health` →
-`{ "status": "ok" }`. A response with `"degraded": true` means the backup is answering:
-resolves still work, but tips, buys and launches are briefly unavailable — say so and
-retry rather than reporting a failure.
+Optional liveness check for this skill's API: `web_request GET {base}/health`, which
+returns `{ status, chainId, factory, facilitator, twitch, capabilities }`. A response
+carrying `"degraded": true` came from the standby: resolves still work, but tips, buys
+and launches are briefly unavailable — say so and retry rather than reporting a failure.
 
 ## Onboarding
 
