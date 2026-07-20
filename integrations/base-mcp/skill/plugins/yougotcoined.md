@@ -161,13 +161,16 @@ the fee is what stops it being spammed.
 2. Approve the $1 in the wallet, then `complete_x402_request` to retry with payment.
 
 ```json
-{ "ok": true, "login": "somestreamer", "userId": "12345678",
-  "coinAddress": "0xb200…", "twinAddress": "0x…", "paid": true, "payer": "0x…" }
+{ "login": "somestreamer", "userId": "12345678",
+  "coinAddress": "0xb200…", "twinAddress": "0x…",
+  "launchTx": "0x…", "alreadyExisted": false }
 ```
 
 Notes:
-- **One coin per streamer.** If they already have one you get `alreadyLaunched: true`
-  with the existing address — that's success, not an error. Don't retry.
+- **One coin per streamer.** If they already have one you get `alreadyExisted: true`
+  and `coinAddress` set to the existing coin, with `launchTx: null`. That is success,
+  not an error — report the coin and don't retry or pay again.
+- `launchTx` is the deploy transaction; link it as `https://basescan.org/tx/<hash>`.
 - The name and symbol are derived from the Twitch login server-side. They can't be
   chosen, so don't ask the user for them.
 - The streamer doesn't need to consent or even know: the coin belongs to their twin and
