@@ -34,6 +34,16 @@ time rather than fanning out.
 
 ## Read endpoints
 
+### Discovery
+
+```
+GET {base}
+```
+
+The base URL returns a manifest — what this is, the skill's install command and
+source, and every endpoint with its parameters. Handy for a sanity check; you don't
+need it to use the API.
+
 ### Resolve a streamer → their address
 
 ```
